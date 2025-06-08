@@ -9,26 +9,24 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="LottoAI", page_icon="🎯")
 st.title("🎯 LottoAI – วิเคราะห์เลขเด็ดด้วย AI")
 
-# ภาษา
 lang = st.sidebar.radio("🌐 Language / ภาษา", ("ไทย", "English"))
 L = {
-    "title": "LottoAI – วิเคราะห์เลขเด็ดด้วย AI" if lang == "ไทย" else "LottoAI – Lucky Number Predictor",
-    "input_top": "กรอกเลขสามตัวบน (ใช้เว้นวรรค เช่น 538 754 019)" if lang == "ไทย" else "Enter 3-digit numbers (e.g. 538 754 019)",
-    "input_bottom": "กรอกเลขสองตัวล่าง (ใช้เว้นวรรค เช่น 29 10 58)" if lang == "ไทย" else "Enter 2-digit numbers (e.g. 29 10 58)",
-    "analyze": "🔍 ทำนายแบบธรรมดา" if lang == "ไทย" else "🔍 Basic Prediction",
-    "clear": "🧼 ล้างข้อมูล" if lang == "ไทย" else "🧼 Clear Data",
-    "premium": "💎 ทำนายขั้นสูง (Premium)" if lang == "ไทย" else "💎 Premium Prediction",
-    "upload": "📎 แนบสลิป (.jpg, .png)" if lang == "ไทย" else "📎 Upload payment slip (.jpg, .png)",
-    "unlocked": "🎉 ขอบคุณสำหรับการสนับสนุน!\nรหัสของคุณคือ: " if lang == "ไทย" else "🎉 Thank you for your support!\nYour code is: ",
-    "renew": "🔁 ต่ออายุ Premium" if lang == "ไทย" else "🔁 Renew Premium Access",
-    "locked": "🔒 แนบสลิปเพื่อดูผลพรีเมียม" if lang == "ไทย" else "🔒 Upload slip to unlock premium",
+    "input_top": "กรอกเลขสามตัวบน (เช่น 538 754 019)",
+    "input_bottom": "กรอกเลขสองตัวล่าง (เช่น 29 10 58)",
+    "analyze": "🔍 ทำนายแบบธรรมดา",
+    "clear": "🧼 ล้างข้อมูล",
+    "premium": "💎 ทำนายขั้นสูง (Premium)",
+    "upload": "📎 แนบสลิป (.jpg, .png)",
+    "unlocked": "🎉 ขอบคุณสำหรับการสนับสนุน!\nรหัสของคุณคือ: ",
+    "renew": "🔁 ต่ออายุ Premium",
+    "locked": "🔒 แนบสลิปเพื่อดูผลพรีเมียม",
 }
 
-# อินพุต
 st.subheader("📋 " + L["input_top"])
-top_input = st.text_input("")
+top_input = st.text_input("", key="top_input")
+
 st.subheader(L["input_bottom"])
-bottom_input = st.text_input("")
+bottom_input = st.text_input("", key="bottom_input")
 
 if st.button(L["clear"]):
     st.experimental_rerun()
@@ -76,7 +74,7 @@ if df is not None and len(df) >= 5:
         st.markdown("### 🔮 แนวโน้มเลขถัดไป")
         st.markdown(f"<h1 style='color:red; text-align:center'>{top3[0]}</h1>", unsafe_allow_html=True)
 
-# ปลดล็อก premium
+# Premium unlock
 today_code = datetime.today().strftime("VIP%y%m%d")
 if "unlocked_until" not in st.session_state:
     st.session_state.unlocked_until = datetime.now() - timedelta(minutes=1)
