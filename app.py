@@ -46,19 +46,18 @@ st.dataframe(pd.DataFrame(draws, columns=["สามตัวบน", "สอง
 
 # ────────────────── HELPER FUNCTIONS ──────────────────
 
-def find_last_n_miss(draws, n=5, digits=2):
+def dead_digits_09(draws, n=5):
     """
-    หาเลขที่ไม่เคยออกเลยใน n งวดหลังสุด
-    digits = 2 (สองตัวล่าง) / 3 (สามตัวบน)
+    คืนค่าเลข 0-9 ที่ไม่ออกเลยในทั้งสามตัวบนและสองตัวล่าง (ทุกหลัก) ใน n งวดล่าสุด
     """
-    if digits == 3:
-        nums = {str(i).zfill(3) for i in range(1000)}
-        appeared = {t for t, _ in draws[-n:]}
-    else:
-        nums = {str(i).zfill(2) for i in range(100)}
-        appeared = {b for _, b in draws[-n:]}
-    missing = sorted(nums - appeared)
-    return missing
+    last_draws = draws[-n:]
+    appeared = set()
+    for t, b in last_draws:
+        appeared.update(t)
+        appeared.update(b)
+    all_digits = set(str(i) for i in range(10))
+    dead = sorted(all_digits - appeared)
+    return dead
 
 def even_odd_chain(draws, n=3):
     """
@@ -104,18 +103,16 @@ if eo_results:
     # ใช้เฉพาะหลักแรกที่เจอ
     label, last_type, freq_list = eo_results[0]
     freq_digits = [str(x[0]) for x in freq_list if x[1] > 0]
-    # เลขดับสองตัวล่าง,สามตัวบน
-    miss2 = find_last_n_miss(draws, n=5, digits=2)
-    miss3 = find_last_n_miss(draws, n=5, digits=3)
+    dead_digits = dead_digits_09(draws, n=5)
     # สร้างสองตัวบน-ล่าง (2 ชุด) เช่น หลักสิบบนได้ [1,3] -> 13, 31
     if len(freq_digits) >= 2:
         two_digit_sets = [freq_digits[0] + freq_digits[1], freq_digits[1] + freq_digits[0]]
     elif len(freq_digits) == 1:
         two_digit_sets = [freq_digits[0] + freq_digits[0]]
     # สร้างสามตัวบน (2 ชุด) เช่น [1,3,5] -> 135, 531, ผสมเลขดับถ้ามี
-    if len(freq_digits) >= 2 and miss3:
-        three_digit_sets = [freq_digits[0] + freq_digits[1] + miss3[0][2], 
-                            freq_digits[1] + freq_digits[0] + miss3[0][1]]
+    if len(freq_digits) >= 2 and dead_digits:
+        three_digit_sets = [freq_digits[0] + freq_digits[1] + dead_digits[0], 
+                            freq_digits[1] + freq_digits[0] + dead_digits[0]]
     elif len(freq_digits) >= 3:
         three_digit_sets = ["".join(freq_digits[:3]), "".join(freq_digits[::-1][:3])]
     else:
@@ -124,16 +121,15 @@ else:
     # สูตร 2: ถ้าไม่มีเหตุการณ์เลขคู่/คี่
     explain_msg = "🔮 **สูตรอันดับ 2:** ไม่มีหลักใดที่เลขคู่/คี่ออกซ้ำ 3 งวด ใช้เลขถี่สุด 3 อันดับ"
     top3 = top3_freq_digits(draws)
-    miss2 = find_last_n_miss(draws, n=5, digits=2)
-    miss3 = find_last_n_miss(draws, n=5, digits=3)
+    dead_digits = dead_digits_09(draws, n=5)
     # ผสมกับเลขดับ
-    for d in miss2[:3]:
+    for d in dead_digits[:3]:
         if len(top3) >= 1:
-            two_digit_sets.append(top3[0] + d[1])
+            two_digit_sets.append(top3[0] + d)
         if len(top3) >= 2:
-            two_digit_sets.append(top3[1] + d[1])
+            two_digit_sets.append(top3[1] + d)
         if len(top3) >= 3:
-            two_digit_sets.append(top3[2] + d[1])
+            two_digit_sets.append(top3[2] + d)
         if len(two_digit_sets) >= 4:
             break
     # สามตัวบน 1 ชุด
@@ -162,19 +158,13 @@ if two_digit_sets:
 if three_digit_sets:
     st.markdown(f"**เลขสามตัวบน แนะนำ:** <span style='color:#C04000;font-size:24px'>{'  '.join(three_digit_sets[:2])}</span>", unsafe_allow_html=True)
 
-# ข้อมูลประกอบ
-def dead_digits_09(draws, n=5):
-    """
-    คืนค่าเลข 0-9 ที่ไม่ออกเลยในทั้งสามตัวบนและสองตัวล่าง (ทุกหลัก) ใน n งวดล่าสุด
-    """
-    last_draws = draws[-n:]
-    appeared = set()
-    for t, b in last_draws:
-        appeared.update(t)
-        appeared.update(b)
-    all_digits = set(str(i) for i in range(10))
-    dead = sorted(all_digits - appeared)
-    return dead
+# ───── แสดงเลขดับ (0-9) ทั้งสามตัวบนและสองตัวล่างใน 5 งวดล่าสุด ─────
+dead_digits = dead_digits_09(draws, n=5)
+st.markdown(
+    f"**เลขดับ (0-9 ที่ไม่ออกเลยใน 5 งวดล่าสุด ทั้งสามตัวบนและสองตัวล่าง):**<br>"
+    f"<span style='color:#004080;font-size:22px'>{'  '.join(dead_digits) if dead_digits else '—'}</span>",
+    unsafe_allow_html=True,
+)
 
 # ────────────────── FOOTER ──────────────────
 st.caption("© 2025 YKLottaAI สูตรใหม่ (By ChatGPT)")
