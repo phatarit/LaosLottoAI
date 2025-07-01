@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
-from collections import Counter, defaultdict
-from itertools import combinations
+from collections import Counter
 
 # ─────────────────── CONFIG ───────────────────
 st.set_page_config(page_title="YKLottaAI", page_icon="🎯", layout="centered")
@@ -47,134 +46,125 @@ st.dataframe(pd.DataFrame(draws, columns=["สามตัวบน", "สอง
 
 # ────────────────── HELPER FUNCTIONS ──────────────────
 
-def hot_digits(hist, win, n=3):
-    seg = hist[-win:] if len(hist) >= win else hist
-    return [d for d, _ in Counter("".join("".join(x) for x in seg)).most_common(n)]
+def find_last_n_miss(draws, n=5, digits=2):
+    """
+    หาเลขที่ไม่เคยออกเลยใน n งวดหลังสุด
+    digits = 2 (สองตัวล่าง) / 3 (สามตัวบน)
+    """
+    if digits == 3:
+        nums = {str(i).zfill(3) for i in range(1000)}
+        appeared = {t for t, _ in draws[-n:]}
+    else:
+        nums = {str(i).zfill(2) for i in range(100)}
+        appeared = {b for _, b in draws[-n:]}
+    missing = sorted(nums - appeared)
+    return missing
 
-def pretty(lst, per_line=10):
-    chunk = ["  ".join(lst[i : i + per_line]) for i in range(0, len(lst), per_line)]
-    return "<br>".join(chunk)
+def even_odd_chain(draws, n=3):
+    """
+    ตรวจแต่ละหลัก (ร้อย/สิบ/หน่วยบน, สิบ/หน่วยล่าง) ว่าเลขคู่หรือคี่ออกซ้ำ n รอบติดหรือไม่
+    คืนค่า: [(หลัก, คู่/คี่, เลขกลุ่มนั้น top 3), ...]
+    """
+    results = []
+    idx_map = [
+        ('หลักร้อยบน', lambda t, b: int(t[0])),
+        ('หลักสิบบน',  lambda t, b: int(t[1])),
+        ('หลักหน่วยบน',lambda t, b: int(t[2])),
+        ('หลักสิบล่าง', lambda t, b: int(b[0])),
+        ('หลักหน่วยล่าง',lambda t, b: int(b[1])),
+    ]
+    for label, func in idx_map:
+        seq = [func(t, b) for t, b in draws[-n:]]
+        if all(x % 2 == 0 for x in seq):  # คู่ซ้ำ n รอบ
+            all_vals = [func(t, b) for t, b in draws]
+            odd_freq = Counter([x for x in all_vals if x % 2 == 1]).most_common(3)
+            results.append((label, 'คู่', odd_freq))
+        elif all(x % 2 == 1 for x in seq):  # คี่ซ้ำ n รอบ
+            all_vals = [func(t, b) for t, b in draws]
+            even_freq = Counter([x for x in all_vals if x % 2 == 0]).most_common(3)
+            results.append((label, 'คี่', even_freq))
+    return results
 
-def unordered2(p):
-    return "".join(sorted(p))
+def top3_freq_digits(draws):
+    """
+    เลขเด่นสุด 3 อันดับ (ทุกหลักในสามตัวบน+สองตัวล่าง)
+    """
+    digits = "".join(t + b for t, b in draws)
+    return [d for d, _ in Counter(digits).most_common(3)]
 
-def unordered3(t):
-    return "".join(sorted(t))
+# ────────────────── MAIN PREDICT LOGIC ──────────────────
 
-def run_digits(hist):
-    return list(hist[-1][1])
-
-def sum_mod(hist):
-    return str(sum(map(int, hist[-1][0])) % 10)
-
-# windows 10,15,20,25,30
-hot10  = hot_digits(draws, 10)
-hot15  = hot_digits(draws, 15)
-hot20  = hot_digits(draws, 20)
-hot25  = hot_digits(draws, 25)
-hot30  = hot_digits(draws, 30)
-
-# ────────────────── CORE ALGORITHMS ──────────────────
-
-def exp_hot(hist, win=27):
-    sc = Counter()
-    for i, (t, b) in enumerate(reversed(hist[-win:])):
-        w = 0.8 ** i
-        for d in t + b:
-            sc[d] += w
-    for d in hot10 + hot15 + hot20 + hot25 + hot30:
-        sc[d] += 0.3
-    return max(sc, key=sc.get)
-
-
-def build_trans(hist):
-    M = defaultdict(Counter)
-    for (pt, pb), (ct, cb) in zip(hist[:-1], hist[1:]):
-        M[unordered2(pb)][unordered2(cb)] += 1
-    return M
-
-
-def markov_pairs(hist, size=10):
-    trans = build_trans(hist)
-    last = unordered2(hist[-1][1])
-    base = [p for p, _ in trans[last].most_common(size)]
-
-    boost = set(hot10 + hot15 + hot20 + hot25 + hot30)
-    for a, b in combinations(boost, 2):
-        p = unordered2(a + b)
-        if p not in base:
-            base.append(p)
-        if len(base) == size:
+# สูตร 1: ถ้ามีหลักใดคู่/คี่ซ้ำ 3 งวดติด
+eo_results = even_odd_chain(draws, n=3)
+two_digit_sets = []
+three_digit_sets = []
+explain_msg = ""
+if eo_results:
+    explain_msg = "🔮 **สูตรอันดับ 1:** เจอเหตุการณ์เลขคู่/คี่ออกซ้ำ 3 รอบในหลักต่อไปนี้"
+    # ใช้เฉพาะหลักแรกที่เจอ
+    label, last_type, freq_list = eo_results[0]
+    freq_digits = [str(x[0]) for x in freq_list if x[1] > 0]
+    # เลขดับสองตัวล่าง,สามตัวบน
+    miss2 = find_last_n_miss(draws, n=5, digits=2)
+    miss3 = find_last_n_miss(draws, n=5, digits=3)
+    # สร้างสองตัวบน-ล่าง (2 ชุด) เช่น หลักสิบบนได้ [1,3] -> 13, 31
+    if len(freq_digits) >= 2:
+        two_digit_sets = [freq_digits[0] + freq_digits[1], freq_digits[1] + freq_digits[0]]
+    elif len(freq_digits) == 1:
+        two_digit_sets = [freq_digits[0] + freq_digits[0]]
+    # สร้างสามตัวบน (2 ชุด) เช่น [1,3,5] -> 135, 531, ผสมเลขดับถ้ามี
+    if len(freq_digits) >= 2 and miss3:
+        three_digit_sets = [freq_digits[0] + freq_digits[1] + miss3[0][2], 
+                            freq_digits[1] + freq_digits[0] + miss3[0][1]]
+    elif len(freq_digits) >= 3:
+        three_digit_sets = ["".join(freq_digits[:3]), "".join(freq_digits[::-1][:3])]
+    else:
+        three_digit_sets = []
+else:
+    # สูตร 2: ถ้าไม่มีเหตุการณ์เลขคู่/คี่
+    explain_msg = "🔮 **สูตรอันดับ 2:** ไม่มีหลักใดที่เลขคู่/คี่ออกซ้ำ 3 งวด ใช้เลขถี่สุด 3 อันดับ"
+    top3 = top3_freq_digits(draws)
+    miss2 = find_last_n_miss(draws, n=5, digits=2)
+    miss3 = find_last_n_miss(draws, n=5, digits=3)
+    # ผสมกับเลขดับ
+    for d in miss2[:3]:
+        if len(top3) >= 1:
+            two_digit_sets.append(top3[0] + d[1])
+        if len(top3) >= 2:
+            two_digit_sets.append(top3[1] + d[1])
+        if len(top3) >= 3:
+            two_digit_sets.append(top3[2] + d[1])
+        if len(two_digit_sets) >= 4:
             break
-    return base[:size]
-
-
-def hybrid_combos(hist, pool_sz=12, k=10):
-    pool = (
-        run_digits(hist)
-        + [sum_mod(hist)]
-        + hot_digits(hist, 5, 3)
-        + hot_digits(hist, len(hist), 3)
-        + hot10
-        + hot15
-        + hot20
-        + hot25
-        + hot30
-    )
-    pool = list(dict.fromkeys(pool))[:pool_sz]
-
-    score = Counter()
-    for i, (t, b) in enumerate(hist[-30:]):
-        w = 1 - i / 30 * 0.9
-        for d in t + b:
-            score[d] += w
-
-    combos = {"".join(sorted(c)) for c in combinations(pool, 3)}
-    combos = sorted(combos, key=lambda x: -(score[x[0]] + score[x[1]] + score[x[2]]))
-    return combos[:k]
-
-# ────────────────── PREDICT NEXT ──────────────────
-
-main_digit = exp_hot(draws)
-combo_two  = markov_pairs(draws, size=10)  # 10 ชุด
-combo_three = hybrid_combos(draws, k=10)   # 10 ชุด
-
-# รวม 2 ตัวท้ายบนเข้าชุดล่าง
-for tail in {unordered2(t[1:]) for t, _ in [draws[-1]]}:
-    if tail not in combo_two and len(combo_two) < 10:
-        combo_two.append(tail)
-
-focus_two   = combo_two[:5]
-focus_three = combo_three[:3]
+    # สามตัวบน 1 ชุด
+    if len(top3) >= 3:
+        three_digit_sets = [top3[0] + top3[1] + top3[2]]
+    else:
+        three_digit_sets = []
 
 # ────────────────── DISPLAY RESULTS ──────────────────
 
-st.markdown(
-    f"<div style='font-size:44px;color:red;text-align:center'>รูด 19 ประตู: {main_digit}</div>",
-    unsafe_allow_html=True,
-)
+st.subheader("📌 สรุปผลการวิเคราะห์และทำนาย")
 
-c1, c2 = st.columns(2)
-with c1:
-    st.subheader("เจาะสองตัว (10 ชุด)")
-    st.markdown(
-        f"<div style='font-size:22px;color:red'>{pretty(combo_two,10)}</div>",
-        unsafe_allow_html=True,
-    )
+st.markdown(explain_msg)
 
-with c2:
-    st.subheader("เจาะสามตัวกลับ 6 ทาง (10 ชุด)")
-    st.markdown(
-        f"<div style='font-size:22px;color:red'>{pretty(combo_three,10)}</div>",
-        unsafe_allow_html=True,
-    )
+if eo_results:
+    label, last_type, freq_list = eo_results[0]
+    freq_digits = [str(x[0]) for x in freq_list if x[1] > 0]
+    if last_type == "คู่":
+        msg_type = f"หลัก**{label}** ออกเลขคู่ 3 งวดติด ทำนายว่างวดต่อไปควรเป็นเลข **คี่** ถี่สุด"
+    else:
+        msg_type = f"หลัก**{label}** ออกเลขคี่ 3 งวดติด ทำนายว่างวดต่อไปควรเป็นเลข **คู่** ถี่สุด"
+    st.markdown(f"<div style='color:#2f4858;font-size:20px'>{msg_type}: <b>{', '.join(freq_digits)}</b></div>", unsafe_allow_html=True)
 
-st.subheader("🚩 เลขเจาะ")
-st.markdown(
-    f"<div style='font-size:26px;color:red'>สองตัว (5 ชุด): {'  '.join(focus_two)}<br>"
-    f"สามตัว (3 ชุด): {'  '.join(focus_three)}</div>",
-    unsafe_allow_html=True,
-)
+if two_digit_sets:
+    st.markdown(f"**เลขสองตัวบน/ล่าง แนะนำ:** <span style='color:#C04000;font-size:24px'>{'  '.join(two_digit_sets[:2])}</span>", unsafe_allow_html=True)
+if three_digit_sets:
+    st.markdown(f"**เลขสามตัวบน แนะนำ:** <span style='color:#C04000;font-size:24px'>{'  '.join(three_digit_sets[:2])}</span>", unsafe_allow_html=True)
+
+# ข้อมูลประกอบ
+st.markdown("**เลขดับ 3 ตัวบน 5 งวดหลัง:**<br>" + " ".join(find_last_n_miss(draws, n=5, digits=3)))
+st.markdown("**เลขดับ 2 ตัวล่าง 5 งวดหลัง:**<br>" + " ".join(find_last_n_miss(draws, n=5, digits=2)))
 
 # ────────────────── FOOTER ──────────────────
-st.caption("© 2025 YKLottaAI")
+st.caption("© 2025 YKLottaAI สูตรใหม่ (By ChatGPT)")
