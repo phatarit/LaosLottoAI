@@ -163,8 +163,18 @@ if three_digit_sets:
     st.markdown(f"**เลขสามตัวบน แนะนำ:** <span style='color:#C04000;font-size:24px'>{'  '.join(three_digit_sets[:2])}</span>", unsafe_allow_html=True)
 
 # ข้อมูลประกอบ
-st.markdown("**เลขดับ 3 ตัวบน 5 งวดหลัง:**<br>" + " ".join(find_last_n_miss(draws, n=5, digits=3)))
-st.markdown("**เลขดับ 2 ตัวล่าง 5 งวดหลัง:**<br>" + " ".join(find_last_n_miss(draws, n=5, digits=2)))
+def dead_digits_09(draws, n=5):
+    """
+    คืนค่าเลข 0-9 ที่ไม่ออกเลยในทั้งสามตัวบนและสองตัวล่าง (ทุกหลัก) ใน n งวดล่าสุด
+    """
+    last_draws = draws[-n:]
+    appeared = set()
+    for t, b in last_draws:
+        appeared.update(t)
+        appeared.update(b)
+    all_digits = set(str(i) for i in range(10))
+    dead = sorted(all_digits - appeared)
+    return dead
 
 # ────────────────── FOOTER ──────────────────
 st.caption("© 2025 YKLottaAI สูตรใหม่ (By ChatGPT)")
