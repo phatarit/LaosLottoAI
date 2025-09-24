@@ -1,528 +1,148 @@
+# app.py
 # -*- coding: utf-8 -*-
-"""
-Lotto-like digit statistics & simple next-number suggester.
-
-Assumptions:
-- แต่ละงวดเป็นสตริง 4 หลัก "ABCD" มองเป็นสองส่วน: ('AB','CD').
-- เอาเลขทุกหลักไปรวมกัน นับความถี่ 0–9 แบบรวมทุกตำแหน่ง
-- ผลลัพธ์ (ฮิวริสติก):
-  1) เลขเดี่ยว 1 ตัว = ตัวเลขที่มีความถี่รวมสูงสุด
-  2) เลขสองตัว 4 ชุด = นำเลขเดี่ยวไปจับกับ 4 เลขที่ถี่รองลงมา (พยายามหลีกเลี่ยงเลข “ดับ” ช่วงหลัง)
-  3) เลขสามตัว 1 ชุด = เลขเดี่ยว + สองเลขถัดไป
-  4) เลขสี่ตัว 1 ชุด = เลขเดี่ยว + สามเลขถัดไป
-
-หมายเหตุ: เป็นการทดลองเชิงสถิติ ไม่รับประกันผลลัพธ์จริง
-"""
-
-from __future__ import annotations
+import re
+import random
 from collections import Counter
-from dataclasses import dataclass
-from typing import List, Tuple
 
-# ────────────────────────── Data helpers ──────────────────────────
+import streamlit as st
 
-def parse_draws(raw: List[str]) -> List[Tuple[str, str]]:
-    """
-    แปลง "9767" -> ('97','67')
-    ข้ามบรรทัดที่ไม่ใช่ตัวเลข 4 หลัก
-    """
-    out: List[Tuple[str, str]] = []
-    for s in raw:
-        s = s.strip()
-        if len(s) == 4 and s.isdigit():
-            out.append((s[:2], s[2:]))
+# ---------------- Page config ----------------
+st.set_page_config(
+    page_title="Lao Lotto — Smart Picks (4 digits)",
+    page_icon="🇱🇦",
+    layout="centered",
+)
+
+# ---------------- Theme (white bg, red numbers, blue borders) ----------------
+st.markdown("""
+<style>
+.stApp { background:#ffffff; color:#111; }
+.block-container { max-width:900px; }
+.box {
+  border:2px solid #0b5bd3; border-radius:14px; padding:14px 16px; margin:12px 0;
+  background:#fff;
+}
+.big    { font-size:3.2rem; font-weight:800; color:#d41414; letter-spacing:1px; }
+.mid    { font-size:2.2rem; font-weight:800; color:#d41414; letter-spacing:1px; }
+.small  { font-size:1.8rem; font-weight:800; color:#d41414; letter-spacing:1px; }
+.label  { font-size:0.95rem; color:#0b5bd3; font-weight:700; text-transform:uppercase; }
+.note   { color:#666; font-size:0.9rem; }
+hr { border-color:#e7eefb; }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🇱🇦 Lao Lotto — วิเคราะห์ & ทำนาย 4 หลัก")
+
+st.write("วางเลข **4 หลัก/บรรทัด** อย่างน้อย **5 งวด** (ตัวอื่น ๆ ในบรรทัดจะถูกตัดทิ้ง เก็บเฉพาะกลุ่มตัวเลข 4 หลักท้ายบรรทัด)")
+
+# ---------------- Input ----------------
+sample = "0543\n0862\n9252\n9767\n5319"
+raw = st.text_area("วางเลข 4 หลัก", value=sample, height=180, placeholder="เช่น 0543\n0862\n9252 ...")
+
+lines = [ln for ln in raw.splitlines() if ln.strip()]
+
+def extract_last_4digits(s: str) -> str | None:
+    """คืนกลุ่มตัวเลข 4 หลัก 'สุดท้าย' ในบรรทัดนั้น ถ้าไม่มีคืน None"""
+    groups = re.findall(r"(\d{4})", s)
+    return groups[-1] if groups else None
+
+draws_all = []
+for ln in lines:
+    d = extract_last_4digits(ln.strip())
+    if d: draws_all.append(d)
+
+st.write(f"โหลดข้อมูลที่ใช้งานได้: **{len(draws_all)}** งวด → " +
+         (", ".join(draws_all[-10:]) if draws_all else "—"))
+
+if len(draws_all) < 5:
+    st.warning("กรุณาใส่อย่างน้อย **5 งวด** จึงจะเริ่มวิเคราะห์ได้")
+    st.stop()
+
+# ---------------- Core helpers ----------------
+def digits_from_draws(draws: list[str]) -> list[str]:
+    out = []
+    for d in draws:
+        out.extend(list(d))
     return out
 
-def last_n(draws: List[Tuple[str, str]], n: int) -> List[Tuple[str, str]]:
-    return draws[-n:] if n > 0 else []
+def most_frequent_digit(last5: list[str]) -> str:
+    c = Counter(digits_from_draws(last5))
+    # หากเสมอกัน เลือกตัวที่มาก่อนตามลำดับตัวเลข
+    top_cnt = max(c.values())
+    candidates = sorted([d for d, n in c.items() if n == top_cnt], key=lambda x: int(x))
+    return candidates[0]
 
-def dead_digits_09(draws: List[Tuple[str, str]], n: int = 12) -> List[str]:
-    """
-    คืนเลข 0–9 ที่ “ไม่ปรากฏเลย” ใน n งวดหลังสุด (ทุกหลัก)
-    """
-    recent = last_n(draws, n)
+def partner_digits_from_last3(last3: list[str]) -> list[str]:
+    """คืนตัวเลขแบบ unique รักษาลำดับที่ปรากฏ จาก 3 งวดล่าสุด (รวม 12 หลัก)"""
     seen = set()
-    for t, b in recent:
-        seen.update(list(t))
-        seen.update(list(b))
-    return sorted(set("0123456789") - seen)
+    ordered = []
+    for d in "".join(last3):
+        if d not in seen:
+            seen.add(d); ordered.append(d)
+    return ordered
 
-def digit_counter(draws: List[Tuple[str, str]]) -> Counter:
-    c = Counter()
-    for t, b in draws:
-        c.update(list(t))
-        c.update(list(b))
-    return c
-
-def top_k_digits(c: Counter, k: int, exclude: set | None = None) -> List[str]:
-    exclude = exclude or set()
-    items = [(d, cnt) for d, cnt in c.most_common() if d not in exclude]
-    return [d for d, _ in items[:k]]
-
-@dataclass
-class Prediction:
-    single_digit: str
-    two_digit_sets: List[str]  # length 4
-    three_digit: str
-    four_digit: str
-
-# ────────────────────────── Core heuristic ──────────────────────────
-
-def predict_from_draws(draws: List[Tuple[str, str]], recent_n_for_dead: int = 12) -> Prediction:
+def select_top5_pairs(hot: str, partners: list[str]) -> list[str]:
     """
-    เลือกเลขเดี่ยวจากความถี่รวมสูงสุด
-    จับคู่เลขสองตัว 4 ชุดด้วยตัวที่ถี่รองลงมา โดยเรียง non-dead ก่อน dead
-    สามตัว = เลขเดี่ยว + 2 ตัวถัดไป
-    สี่ตัว = เลขเดี่ยว + 3 ตัวถัดไป
+    สร้างเลข 2 หลัก hot+digit แล้วคัด 5 ชุด
+    - จัดลำดับพิเศษ: 4,5,6,2,1,0 มาก่อน (ถ้าอยู่ใน partners)
+    - จากนั้นตามลำดับที่เหลือใน partners เดิม
+    - อนุญาตคู่ซ้ำเช่น 22 ได้ (ถ้า digit == hot และอยู่ใน partners)
     """
-    if not draws:
-        raise ValueError("No draws provided")
+    special_order = ['4','5','6','2','1','0']
+    preferred = [d for d in special_order if d in partners]
+    others    = [d for d in partners if d not in preferred]
+    order = preferred + others
+    pairs = [hot + d for d in order]
+    # คัด 5 ชุดแรก
+    return pairs[:5]
 
-    c = digit_counter(draws)
-    dead = set(dead_digits_09(draws, n=recent_n_for_dead))
+def missing_digit_in_last5(last5: list[str]) -> str:
+    used = set(digits_from_draws(last5))
+    missing = [str(d) for d in range(10) if str(d) not in used]
+    if missing:
+        return sorted(missing, key=lambda x:int(x))[0]
+    # ถ้าไม่มีที่หายไป ใช้ตัวที่พบน้อยสุดแทน
+    c = Counter(digits_from_draws(last5))
+    min_cnt = min(c.values())
+    leasts = sorted([d for d, n in c.items() if n == min_cnt], key=lambda x:int(x))
+    return leasts[0]
 
-    # single digit
-    single = c.most_common(1)[0][0]
+# ---------------- Compute per spec ----------------
+last5 = draws_all[-5:]               # ใช้หา hot & missing
+last3 = draws_all[-3:]               # ใช้เป็นแหล่ง partner
+latest_draw = draws_all[-1]          # ใช้หลักพันข้อ 4
 
-    # เรียงผู้ท้าชิง (เว้น single) และให้ non-dead มาก่อน
-    ordered = [d for d, _ in c.most_common() if d != single]
-    non_dead = [d for d in ordered if d not in dead]
-    dead_ones = [d for d in ordered if d in dead]
-    partners = (non_dead + dead_ones)[:4]
-    # กันกรณีข้อมูลน้อย เติมสำรอง
-    while len(partners) < 4:
-        for d in "0123456789":
-            if d != single and d not in partners:
-                partners.append(d)
-            if len(partners) == 4:
-                break
+# 1) เลขเดี่ยวถี่สุดใน 5 งวด
+hot = most_frequent_digit(last5)
 
-    # two-digit: single นำหน้า
-    two_digit = [single + d for d in partners[:4]]
+# 2) จับคู่กับเลขจาก 3 งวดล่าสุด → คัด 5 ชุด โดยให้ 4,5,6,2,1,0 มาก่อน
+partners = partner_digits_from_last3(last3)
+pairs_2d = select_top5_pairs(hot, partners)
 
-    # three/four digit
-    p2 = (partners + [d for d in "0123456789" if d != single])
-    three = single + p2[0] + p2[1]
-    four  = single + p2[0] + p2[1] + p2[2]
+# 3) หาเลขที่หายไปจาก 5 งวด → ใส่เป็นหลักหน้า
+missing = missing_digit_in_last5(last5)
+triples = [missing + p for p in pairs_2d]
 
-    return Prediction(single_digit=single, two_digit_sets=two_digit, three_digit=three, four_digit=four)
+# 4) สุ่ม 3 ตัว 1 ชุด แล้วใช้ “หลักพัน” จากงวดล่าสุด (ตัวแรกของงวดล่าสุด)
+random.seed()               # ใช้ระบบสุ่มพื้นฐาน
+pick3 = random.choice(triples)
+thousand = latest_draw[0]   # หลักพันของงวดล่าสุด = ตัวแรกของสตริง 4 หลักล่าสุด
+four_digit = thousand + pick3
 
-# ────────────────────────── Pretty print ──────────────────────────
+# ---------------- Display ----------------
+st.markdown("<div class='box'><div class='label'>1) เลขเดี่ยว (เกิดถี่สุด ใน 5 งวด)</div>"
+            f"<div class='big'>{hot}</div></div>", unsafe_allow_html=True)
 
-def summarize(draws: List[Tuple[str, str]], pred: Prediction, recent_n_for_dead: int = 12) -> str:
-    c = digit_counter(draws)
-    top5 = ", ".join([f"{d}:{cnt}" for d, cnt in c.most_common(5)])
-    dead = " ".join(dead_digits_09(draws, recent_n_for_dead)) or "—"
-    return (
-        "=== STAT SUMMARY ===\n"
-        f"Total draws: {len(draws)} (pairs)\n"
-        f"Top-5 digits by frequency: {top5}\n"
-        f"Dead digits (last {recent_n_for_dead}): {dead}\n\n"
-        "=== SUGGESTION (Heuristic) ===\n"
-        f"Single digit: {pred.single_digit}\n"
-        f"Two-digit sets (4): {', '.join(pred.two_digit_sets)}\n"
-        f"Three-digit: {pred.three_digit}\n"
-        f"Four-digit: {pred.four_digit}\n"
-    )
+st.markdown("<div class='box'><div class='label'>2) เลขสองตัว (จากเลขเดี่ยว × 3 งวดล่าสุด, คัดพิเศษ 4,5,6,2,1,0)</div>"
+            f"<div class='mid'>{', '.join(pairs_2d)}</div>"
+            "<div class='note'>ตัวอย่างวิธีคัด: ถ้า hot=2 และ 3 งวดล่าสุดมี 0,1,2,3,4,5,6..."
+            " จะเรียง 24,25,26,22,20 แล้วค่อยตัวอื่น ๆ</div></div>", unsafe_allow_html=True)
 
-# ────────────────────────── Run as script ──────────────────────────
-if __name__ == "__main__":
-    # วางข้อมูลของคุณ (แต่ละบรรทัด = 4 หลักหนึ่งงวด) แทนที่บล็อกนี้
-    RAW_DATA = """
-    9767
-    5319
-    1961
-    4765
-    2633
-    3565
-    0460
-    0619
-    2059
-    4973
-    0155
-    6446
-    7947
-    6774
-    1193
-    5976
-    9256
-    2433
-    2624
-    6314
-    6872
-    3553
-    4268
-    4594
-    2234
-    2114
-    9307
-    0704
-    0607
-    0295
-    1605
-    9766
-    3922
-    9695
-    5720
-    7993
-    8927
-    1148
-    5597
-    7041
-    7028
-    0610
-    3717
-    8053
-    5263
-    6322
-    3811
-    8521
-    4077
-    8649
-    9846
-    8573
-    5487
-    2572
-    4667
-    6835
-    7922
-    1556
-    6895
-    0318
-    6569
-    8723
-    2952
-    2935
-    0516
-    0982
-    7341
-    4870
-    8066
-    2229
-    1835
-    6671
-    0908
-    1339
-    9824
-    1034
-    2588
-    5720
-    5878
-    8932
-    0390
-    1350
-    7001
-    4605
-    7809
-    0536
-    7135
-    3116
-    8715
-    7433
-    1697
-    9344
-    9003
-    3061
-    5803
-    6480
-    2529
-    8233
-    9899
-    1717
-    2034
-    9138
-    8831
-    4299
-    4700
-    7372
-    4706
-    4826
-    0210
-    4010
-    9862
-    9629
-    1976
-    5800
-    9264
-    6026
-    9248
-    6273
-    2007
-    8487
-    0480
-    1222
-    0924
-    5402
-    2224
-    1828
-    7939
-    0879
-    6254
-    5514
-    5473
-    5551
-    4264
-    3910
-    5508
-    5288
-    2499
-    8246
-    4186
-    5468
-    6189
-    2232
-    8186
-    9024
-    9922
-    4354
-    5767
-    8785
-    7095
-    3873
-    3675
-    4475
-    8391
-    1724
-    4254
-    1226
-    9528
-    3099
-    7380
-    1622
-    8499
-    8932
-    4413
-    2263
-    8368
-    8251
-    7215
-    7243
-    9390
-    9938
-    3890
-    3772
-    8596
-    6118
-    6727
-    5915
-    6478
-    4856
-    1857
-    5488
-    8302
-    7706
-    2858
-    8258
-    0911
-    2420
-    1596
-    6804
-    9545
-    4389
-    9432
-    4271
-    9490
-    2552
-    8721
-    4351
-    7999
-    1269
-    6619
-    1155
-    3598
-    9902
-    8717
-    0147
-    3710
-    9057
-    5419
-    3303
-    1399
-    1493
-    1732
-    7206
-    4883
-    5059
-    1209
-    5459
-    9106
-    4248
-    1619
-    5514
-    9036
-    0072
-    5056
-    2878
-    9018
-    9065
-    7076
-    5941
-    0517
-    6143
-    4324
-    5048
-    4075
-    3664
-    4005
-    1150
-    5402
-    8431
-    9284
-    1274
-    2076
-    9698
-    9359
-    8254
-    8224
-    8239
-    2764
-    0605
-    1157
-    2846
-    7339
-    0667
-    1647
-    3866
-    9865
-    8644
-    2703
-    4596
-    4821
-    2811
-    0489
-    9636
-    0040
-    8435
-    9692
-    8919
-    0079
-    0741
-    2989
-    3362
-    2002
-    5177
-    4614
-    3851
-    7589
-    1786
-    6347
-    5269
-    1433
-    5136
-    2810
-    5575
-    9497
-    7162
-    1480
-    4493
-    6353
-    9036
-    5457
-    9318
-    9498
-    4601
-    3741
-    5092
-    9285
-    9989
-    8667
-    9265
-    2256
-    4609
-    7449
-    1393
-    8733
-    5381
-    2944
-    0086
-    4361
-    3205
-    8524
-    7970
-    4277
-    2897
-    1810
-    0055
-    5774
-    6045
-    4647
-    4176
-    9681
-    6705
-    4528
-    8994
-    2439
-    0411
-    2160
-    5215
-    9842
-    1177
-    5480
-    3164
-    7289
-    8459
-    1626
-    6845
-    6647
-    0609
-    4445
-    8159
-    5795
-    2011
-    5116
-    2499
-    8112
-    5741
-    0702
-    9591
-    4409
-    6279
-    0827
-    8518
-    2532
-    7985
-    3794
-    4091
-    8789
-    2597
-    2146
-    6374
-    5284
-    3119
-    9626
-    4464
-    1737
-    2033
-    1630
-    7743
-    4822
-    1056
-    1126
-    3228
-    4787
-    5673
-    2206
-    7957
-    2066
-    6234
-    6988
-    9130
-    1037
-    4269
-    1942
-    0440
-    6849
-    2528
-    2872
-    7617
-    8242
-    9473
-    9503
-    6683
-    1934
-    4662
-    """.strip().splitlines()
+st.markdown("<div class='box'><div class='label'>3) เลขสามตัว (เติมเลขที่หายไปใน 5 งวดเป็นหลักหน้า)</div>"
+            f"<div class='mid'>{', '.join(triples)}</div>"
+            f"<div class='note'>เลขที่หายไปที่ใช้เติม: {missing}</div></div>", unsafe_allow_html=True)
 
-    draws = parse_draws(RAW_DATA)
-    pred  = predict_from_draws(draws, recent_n_for_dead=12)
-    print(summarize(draws, pred, recent_n_for_dead=12))
+st.markdown("<div class='box'><div class='label'>4) เลขสี่ตัว 1 ชุด (สุ่มจากข้อ 3 แล้วเติมหลักพันจากงวดล่าสุด)</div>"
+            f"<div class='small'>{four_digit}</div>"
+            f"<div class='note'>เลือกสามตัวแบบสุ่ม: {pick3} | หลักพันจากงวดล่าสุด ({latest_draw}) = {thousand}</div></div>",
+            unsafe_allow_html=True)
