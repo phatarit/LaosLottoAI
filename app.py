@@ -2,12 +2,11 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 from collections import Counter, defaultdict
-from pathlib import Path
 
 # ----------------- PAGE & THEME -----------------
 st.set_page_config(
     page_title="Lao Lotto V.3",
-    page_icon="icon.png",  # ถ้ามีไฟล์ icon.png ในโฟลเดอร์เดียวกันจะถูกใช้
+    page_icon="icon.png",   # วาง icon.png ไว้โฟลเดอร์เดียวกับไฟล์นี้
     layout="centered"
 )
 
@@ -60,12 +59,12 @@ st.markdown('<div class="subtitle">กรุณาใส่เลข 4 ตัว
 ph = "เช่น (เก่าสุด → ล่าสุด)\n8775\n3798\n6828\n0543\n0862"
 raw = st.text_area("วางเลข 4 หลัก ทีละบรรทัด (ให้ครบ 5 งวด)", height=160, placeholder=ph)
 
+# ดึงเฉพาะบรรทัดที่เป็นตัวเลข 4 หลัก
 draws = [s.strip() for s in raw.splitlines() if s.strip().isdigit() and len(s.strip()) == 4]
 if len(draws) > 5:
     draws = draws[:5]
 
 st.write(f"ข้อมูลที่อ่านได้: **{len(draws)} / 5** งวด")
-
 if len(draws) < 5:
     st.warning("กรุณาวางเลขให้ครบ 5 งวด (ตัวเลข 4 หลัก)")
     st.stop()
@@ -75,6 +74,7 @@ def mod10_of(num4: str) -> int:
     return sum(int(c) for c in num4) % 10
 
 def rotations(num4: str):
+    # 4 แบบ: หมุน 0,1,2,3 ตำแหน่ง (ท้ายมาไว้หน้า)
     return [num4, num4[-1]+num4[:-1], num4[-2:]+num4[:-2], num4[-3:]+num4[:-3]]
 
 def freq_digits(block):
@@ -88,65 +88,95 @@ def mode_last_digit(block):
 
 # ----------------- PREP -----------------
 latest = draws[-1]
-A = mod10_of(latest)
-B = int(latest[-1])
-M = mode_last_digit(draws)
+A = mod10_of(latest)          # mod10 ล่าสุด
+B = int(latest[-1])           # หลักหน่วยล่าสุด
+M = mode_last_digit(draws)    # โหมดของหลักหน่วย 5 งวด
 digit_cnt = freq_digits(draws)
 last_digits = [int(s[-1]) for s in draws]
-F = int(max(digit_cnt.items(), key=lambda x: x[1])[0])
-T = sum(last_digits) % 10
+F = int(max(digit_cnt.items(), key=lambda x: x[1])[0])  # เลขที่พบบ่อยสุดใน 5 งวด
+T = sum(last_digits) % 10     # ผลรวมหลักหน่วยทั้ง 5 mod10
 
 # ----------------- SINGLE (Top-2) -----------------
+# ระบบให้คะแนน: A, B, F, T + บูสต์ตามความถี่
 single_scores = defaultdict(float)
 for d in [A, B, F, T]:
     single_scores[d] += 1.0
-single_scores[A] += 0.6; single_scores[B] += 0.4
-single_scores[F] += 0.8; single_scores[T] += 0.3
+single_scores[A] += 0.6
+single_scores[B] += 0.4
+single_scores[F] += 0.8
+single_scores[T] += 0.3
 for dstr, c in digit_cnt.items():
     single_scores[int(dstr)] += 0.05 * c
+
 top2_single = sorted(single_scores.items(), key=lambda x: (-x[1], x[0]))[:2]
 single_display = [str(k) for k, _ in top2_single]
 
-# ----------------- 2-DIGIT (Anchor Top-8) -----------------
-anchor_digit = str(top2_single[0][0])
+# ----------------- 2-DIGIT (Anchor Top-8, remove reversed duplicates) -----------------
+anchor_digit = str(top2_single[0][0])  # เลือกตัวที่คะแนนสูงกว่าเป็น anchor
 def build_pairs_with_anchor_top8(block, anchor_digit: str):
     latest = block[-1]
-    A = mod10_of(latest); B = int(latest[-1])
+    A = mod10_of(latest)
+    B = int(latest[-1])
     cnt = freq_digits(block)
     M = mode_last_digit(block)
     F = int(max(cnt.items(), key=lambda x: x[1])[0])
+
     w10 = lambda x: (x+10) % 10
     neighbors = [w10(B+k) for k in [-2, -1, 0, 1, 2]]
     topfreq = [int(d) for d, _ in cnt.most_common(3)]
     pool_digits = set([A, int(M), F] + neighbors + topfreq)
 
+    # สร้างคู่ที่ต้องมี anchor อยู่ในชุด (หน้า/หลังได้)
     cand = set()
     for d in pool_digits:
         cand.add(f"{anchor_digit}{d}")
         cand.add(f"{d}{anchor_digit}")
 
-    fronts = [s[:2] for s in block]; backs = [s[-2:] for s in block]
-    last2 = latest[-2:]
+    # ให้คะแนนคู่: ความถี่คู่หน้า/คู่หลัง + ความถี่ตัวเลข + ความใกล้กับคู่ท้ายล่าสุด
+    fronts = [s[:2] for s in block]
+    backs  = [s[-2:] for s in block]
+    last2  = latest[-2:]
     pair_scores = defaultdict(float)
     for p in cand:
         a, b = int(p[0]), int(p[1])
-        pair_scores[p] += 0.7*fronts.count(p) + 0.9*backs.count(p)
-        pair_scores[p] += 0.08*cnt.get(str(a),0) + 0.08*cnt.get(str(b),0)
-        hamming = (p[0]!=last2[0]) + (p[1]!=last2[1])
-        pair_scores[p] += {0:0.5,1:0.25,2:0.0}[hamming]
-    top8 = [p for p, _ in sorted(pair_scores.items(), key=lambda x: (-x[1], x[0]))[:8]]
-    return top8, pair_scores
+        pair_scores[p] += 0.7 * fronts.count(p) + 0.9 * backs.count(p)
+        pair_scores[p] += 0.08 * cnt.get(str(a), 0) + 0.08 * cnt.get(str(b), 0)
+        hamming = (p[0] != last2[0]) + (p[1] != last2[1])
+        pair_scores[p] += {0: 0.5, 1: 0.25, 2: 0.0}[hamming]
+
+    # คัด Top-8 แล้วตัดชุดที่ "สลับตำแหน่งซ้ำ" (เช่น 82/28 เหลืออันเดียว)
+    top_sorted = [p for p, _ in sorted(pair_scores.items(), key=lambda x: (-x[1], x[0]))]
+    unique_pairs = {}
+    for p in top_sorted:
+        key = frozenset(p)       # ใช้เหมือนชุด {a,b}
+        if key not in unique_pairs:
+            unique_pairs[key] = p
+        if len(unique_pairs) == 8:
+            break
+    top8_unique = list(unique_pairs.values())
+    return top8_unique, pair_scores
 
 pairs8, pair_scores = build_pairs_with_anchor_top8(draws, anchor_digit)
 
-# ----------------- 3-DIGIT (Prefix 10 × Best Pair) -----------------
+# ----------------- 3-DIGIT (Prefix 10 × Best Pair, remove permutations) -----------------
+# ใช้คู่ที่ดีที่สุดอันดับแรกจากผล pairs8 (ถ้าไม่มี ใช้เลขเดี่ยวสองตัวประกบกัน)
 best_pair_for_triple = pairs8[0] if pairs8 else f"{single_display[0]}{single_display[1]}"
+
+# prefix 10 ตัว = 0–9 เรียงจากเลขที่ "ออกน้อย → มาก" ใน 5 งวด
 order = sorted(range(10), key=lambda d: (digit_cnt.get(str(d), 0), d))[:10]
 prefixes10 = [str(d) for d in order]
-triples_10 = [f"{p}{best_pair_for_triple}" for p in prefixes10]
+triples_raw = [f"{p}{best_pair_for_triple}" for p in prefixes10]
+
+# ลบชุดที่ "สลับตำแหน่งซ้ำ" (เช่น 397/973/739 เหลืออันเดียว)
+unique_triples = {}
+for t in triples_raw:
+    key = frozenset(t)   # ใช้ชุด {a,b,c}
+    if key not in unique_triples:
+        unique_triples[key] = t
+triples_10 = list(unique_triples.values())
 
 # ----------------- 4-DIGIT (Rotations + Fix last=A) -----------------
-def sim(a, b): return sum(x==y for x,y in zip(a,b))
+def sim(a, b): return sum(x == y for x, y in zip(a, b))
 quads_all = [r[:-1] + str(A) for r in rotations(latest)]
 quads_sorted = sorted(set(quads_all), key=lambda q: (-sim(q, latest), q))[:5]
 
@@ -161,21 +191,23 @@ st.markdown(f'''
 
 st.markdown(f'''
 <div class="card">
-  <span class="tag">ข้อ 2: เลขสองตัว (Anchor={anchor_digit}, Top-8)</span>
+  <span class="tag">ข้อ 2: เลขสองตัว (Anchor={anchor_digit}, Top-8 | ตัดเลขสลับซ้ำ)</span>
   <div class="num-lg">{"  ".join(pairs8)}</div>
+  <div class="note">*สลับตำแหน่งเองได้ แต่ตัดชุดสลับซ้ำออกจากการแสดงผลแล้ว</div>
 </div>
 ''', unsafe_allow_html=True)
 
 st.markdown(f'''
 <div class="card">
-  <span class="tag">ข้อ 3: เลขสามตัว (Prefix 10 × Best Pair)</span>
+  <span class="tag">ข้อ 3: เลขสามตัว (Prefix 10 × Best Pair | ตัดสลับซ้ำ)</span>
   <div class="num-md">{"  ".join(triples_10)}</div>
+  <div class="note">*สลับตำแหน่งเองได้ แต่ตัดชุดสลับซ้ำออกจากการแสดงผลแล้ว</div>
 </div>
 ''', unsafe_allow_html=True)
 
 st.markdown(f'''
 <div class="card">
-  <span class="tag">ข้อ 4: เลขสี่ตัว (Rotation+Fix)</span>
+  <span class="tag">ข้อ 4: เลขสี่ตัว (Rotation + Fix หลักหน่วย = A)</span>
   <div class="num-sm">{"  ".join(quads_sorted)}</div>
 </div>
 ''', unsafe_allow_html=True)
