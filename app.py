@@ -1,178 +1,177 @@
 # app.py
 # -*- coding: utf-8 -*-
-import random
 import re
-from collections import Counter
+import random
 import streamlit as st
+from collections import Counter
 
-# ───────────── Page config ─────────────
+# ---------- Page config ----------
 st.set_page_config(
-    page_title="🇱🇦 Lao Lotto — วิเคราะห์ & ทำนาย (4 หลัก)",
-    page_icon="🇱🇦",
+    page_title="Lao Lotto — วิเคราะห์ & ทำนาย (4 หลัก)",
+    page_icon="icon.png",
     layout="centered",
 )
 
-# ───────────── Theme (ขาว/แดง/น้ำเงิน) ─────────────
+# ---------- (CSS) ขาว-แดง-น้ำเงิน ----------
 st.markdown("""
 <style>
-/* พื้นหลังขาว ตัวอักษรหลักสีเข้ม */
+/* พื้นหลังขาว */
 .stApp { background:#ffffff; color:#111; }
-.block-container { max-width: 880px; }
+.block-container { max-width: 860px; }
 
-/* หัวเรื่องสีน้ำเงิน */
-h1, h2, h3, .title-blue { color:#0b48c2 !important; }
+/* หัวข้อ/คำอธิบาย สีน้ำเงิน */
+h1, .title-blue, .desc-blue { color:#0b5ed7 !important; }
 
-/* กล่องผลลัพธ์: ขอบน้ำเงิน พื้นขาว ตัวเลขแดง */
-.result-box {
-  background:#fff; border:3px solid #0b48c2; border-radius:14px;
-  padding:14px 16px; margin:10px 0;
+/* กล่องผลลัพธ์ */
+.card {
+  background:#ffffff; border:2px solid #0b5ed7; border-radius:14px;
+  padding:16px 18px; margin:12px 0;
 }
-.big-red   { color:#d60b24; font-weight:800; font-size:3rem; line-height:1.0; }
-.mid-red   { color:#d60b24; font-weight:800; font-size:2.0rem; }
-.small-red { color:#d60b24; font-weight:800; font-size:1.6rem; }
 
-/* ปุ่ม/อินพุต */
-textarea, .stTextArea textarea {
-  background:#fff; border:2px solid #0b48c2; color:#111;
-}
-.stButton>button {
-  background:#0b48c2; color:#fff; font-weight:600; border:none;
-  border-radius:10px; padding:0.55rem 1.0rem;
-}
-.stButton>button:hover { filter:brightness(1.05); }
-.tip { font-size:0.9rem; color:#444; }
-.sep { border-color:#dfe6ff; }
+/* ตัวเลขสีแดง */
+.num-red { color:#d90429; font-weight:800; }
+
+/* ขนาดตัวเลข: ข้อ 1 ใหญ่สุด */
+.step1 { font-size: 3rem; line-height:1; }
+.step2 { font-size: 1.8rem; }
+.step3 { font-size: 1.8rem; }
+.step4 { font-size: 1.8rem; }
+
+/* ป้ายหัวการ์ด */
+.card h3 { margin:0 0 6px 0; color:#0b5ed7; }
+
+/* ปุ่ม */
+.stButton>button { background:#0b5ed7; color:#fff; border:none; border-radius:10px; padding:0.6rem 1rem; }
+.stButton>button:hover { background:#0a53be; }
 </style>
 """, unsafe_allow_html=True)
 
-# ───────────── Title ─────────────
-st.markdown(
-    "<h1 class='title-blue'>🇱🇦 Lao Lotto — วิเคราะห์ & ทำนาย (4 หลัก)</h1>",
-    unsafe_allow_html=True,
-)
-st.markdown(
-    "<div class='tip'>วางเลข 4 หลัก ทีละบรรทัด (อย่างน้อย 10 งวด) — "
-    "ระบบจะล้างอักขระอื่น ๆ และ<strong>ถ้าเกิน 4 หลักจะใช้ 4 หลักท้ายสุด</strong></div>",
-    unsafe_allow_html=True,
-)
+# ---------- หัวเรื่องสีน้ำเงิน ----------
+st.markdown("<h1>🇱🇦 Lao Lotto — วิเคราะห์ & ทำนาย (4 หลัก)</h1>", unsafe_allow_html=True)
+st.markdown("""
+<div class="desc-blue">
+วางเลข 4 หลัก ทีละบรรทัด (อย่างน้อย 10 งวด) — ระบบจะล้างอักขระอื่น ๆ และถ้าเกิน 4 หลักจะใช้ 4 หลักท้ายสุด วางเลข 4 หลัก
+</div>
+""", unsafe_allow_html=True)
 
-# ───────────── Input ─────────────
-default_text = ""
-raw = st.text_area(
-    "วางเลข 4 หลัก",
-    value=default_text,
-    height=220,
-    placeholder="เช่น 0543\n0862\n9252\n… (อย่างน้อย 10 งวด)",
-)
+st.markdown("---")
 
-# ล้างข้อมูล: เอาเฉพาะตัวเลข, ถ้ายาวกว่า 4 ให้ใช้ 4 ตัวท้าย, ถ้าน้อยกว่า 4 ทิ้ง
+# ---------- Input ----------
+EXAMPLE = "6828\n0543\n0862\n9252\n9767\n5319"
+raw = st.text_area("วางเลข 4 หลัก ทีละบรรทัด (อย่างน้อย 3 งวด)", value=EXAMPLE, height=220)
+
+# ---------- Cleaning: เก็บ “4 หลักท้ายสุด” ของแต่ละบรรทัด ----------
 def clean_to_last4(line: str) -> str | None:
-    digits = re.sub(r"\D", "", line)
-    if len(digits) < 4:
+    # ดึงเฉพาะตัวเลขทั้งหมด
+    digits = re.findall(r"\d", line)
+    if not digits:
         return None
-    return digits[-4:]
+    # ใช้ 4 หลักท้ายสุด
+    last4 = "".join(digits[-4:])
+    return last4 if len(last4) == 4 else None
 
-lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-draws4 = []
+lines = [ln for ln in raw.splitlines() if ln.strip()]
+draws = []
 for ln in lines:
-    last4 = clean_to_last4(ln)
-    if last4:
-        draws4.append(last4)
+    v = clean_to_last4(ln)
+    if v is not None:
+        draws.append(v)
 
-st.write(f"📥 โหลดข้อมูลที่ผ่านการล้างรูปแบบ: **{len(draws4)}** งวด")
-
-if len(draws4) < 10:
-    st.warning("ต้องมีอย่างน้อย **10 งวด**")
+st.write(f"✅ โหลดเลขที่ใช้ได้: **{len(draws)}** งวด")
+if len(draws) < 3:
+    st.warning("กรุณาวางเลขอย่างน้อย **3 งวด** เพื่อคำนวณตามกติกา")
     st.stop()
 
-# ───────────── Helpers ─────────────
-def digits_in(s: str):
-    return list(s)  # คืน ['9','2','5','2']
+# ใช้ 3 งวดล่าสุดสำหรับขั้นตอน 1–2–4
+last3 = draws[-3:]
+# ใช้ 5 งวดล่าสุดสำหรับขั้นตอน 3
+last5 = draws[-5:] if len(draws) >= 5 else draws[:]
 
-def hot_digit_last_8(draws: list[str]) -> str:
-    last8 = draws[-8:]
-    cnt = Counter()
-    for d in last8:
-        cnt.update(digits_in(d))
-    if not cnt:
-        return "0"
-    # ถ้าเสมอ เลือกตัวที่ค่าจริงต่ำสุด (เสถียร)
-    top = max(cnt.items(), key=lambda x: (x[1], -int(x[0])))
-    return top[0]
+# ---------- ขั้นตอน 1: เลือกเลขเดี่ยวจาก 'หลักสิบ & หลักหน่วย' ของ 3 งวดล่าสุด ----------
+def pick_single_from_tens_units(last3_list):
+    # ดึงหลักสิบ/หน่วยของแต่ละงวด (XY -> tens=X, units=Y จาก 4 หลัก ABCD: tens=C, units=D)
+    pool = []
+    for s in last3_list:
+        tens = s[-2]   # หลักสิบ
+        unit = s[-1]   # หลักหน่วย
+        pool.extend([tens, unit])
+    # เลือกตัวที่ถี่สุด; ถ้าเสมอ ให้เลือกตัวที่เกิด "ใกล้ปัจจุบันสุด" (ตามลำดับจากหลังไปหน้า)
+    ctr = Counter(pool)
+    maxc = max(ctr.values())
+    cands = [d for d, c in ctr.items() if c == maxc]
+    # เลือกด้วยหลัก tie-break: ปรากฏล่าสุดใน last3 (วนจากหลัง)
+    for s in reversed(last3_list):
+        if s[-2] in cands: chosen = s[-2]; break
+        if s[-1] in cands: chosen = s[-1]; break
+    return chosen
 
-def partners_from_last3(draws: list[str]) -> list[str]:
-    last3 = draws[-3:]
-    seen = []
-    for d in last3:
-        for ch in digits_in(d):
-            if ch not in seen:
-                seen.append(ch)
-    return seen  # รักษาลำดับที่พบ
+single_digit = pick_single_from_tens_units(last3)
 
-def missing_digit_in_last5(draws: list[str]) -> str:
-    last5 = draws[-5:]
+# ---------- ขั้นตอน 2: ผสมเป็นเลขสองตัว จากตัวเลข “ทุกหลัก” ของ 3 งวดล่าสุด ----------
+# เอาตัวเลขของ 3 งวดล่าสุด (ทั้ง 12 หลัก) เป็นลิสต์ตามลำดับเวลาจากเก่า->ใหม่
+all_digits_last3 = []
+for s in last3:
+    all_digits_last3.extend(list(s))
+
+# เรียงให้ “ไม่ซ้ำแต่คงลำดับการพบ”
+partners_unique = []
+for d in all_digits_last3:
+    if d not in partners_unique:
+        partners_unique.append(d)
+
+# จับเลขพิเศษเป็นอันดับก่อน: 4,5,6,2,1,0
+special_order = ['4', '5', '6', '2', '1', '0']
+# สร้างลิสต์เป้าหมาย โดยเรียง special ก่อน ตามลำดับที่กำหนด แล้วตามด้วยตัวอื่นๆ ที่เหลือ
+ordered_partners = []
+for sp in special_order:
+    if sp in partners_unique:
+        ordered_partners.append(sp)
+for d in partners_unique:
+    if d not in ordered_partners:
+        ordered_partners.append(d)
+
+# สร้างคู่แบบ "single+partner"
+pair_all = [single_digit + d for d in ordered_partners]
+pairs_to_show = pair_all[:5]  # แสดงแค่ 5 ชุด
+
+# ---------- ขั้นตอน 3: สร้างเลขสามตัว โดยเติม “เลขที่หายไปจาก 5 งวดล่าสุด” ไว้ด้านหน้า ----------
+def missing_digit_from_last5(last5_list):
     seen = set()
-    for d in last5:
-        seen |= set(digits_in(d))
-    # ถ้ามีเลขหายไป เลือกตัวที่น้อยสุด, ถ้าไม่มีให้เลือกตัวที่พบน้อยสุดใน 5 งวด
-    for z in [str(i) for i in range(10)]:
-        if z not in seen:
-            return z
-    cnt = Counter()
-    for d in last5:
-        cnt.update(digits_in(d))
-    minc = min(cnt.values())
-    cands = [z for z, c in cnt.items() if c == minc]
+    for s in last5_list:
+        seen |= set(list(s))
+    missing = [str(x) for x in range(10) if str(x) not in seen]
+    if missing:
+        return sorted(missing, key=lambda x: int(x))[0]  # เอาตัวเลขที่น้อยที่สุด
+    # ถ้าไม่มีเลขหายไป ให้ใช้เลขที่ “พบน้อยสุด” ใน 5 งวดล่าสุดแทน
+    ctr = Counter("".join(last5_list))
+    minc = min(ctr.values())
+    cands = [d for d, c in ctr.items() if c == minc]
     return sorted(cands, key=lambda x: int(x))[0]
 
-# ───────────── Step 1: เลขเดี่ยว (เกิดถี่สุด) 8 งวดล่าสุด ─────────────
-hot = hot_digit_last_8(draws4)
+prefix_digit = missing_digit_from_last5(last5)
+triplets = [prefix_digit + p for p in pairs_to_show]   # ขนาดเท่ากับ pairs_to_show
 
-st.markdown("<div class='result-box'><div>1) เลขเดี่ยว (เกิดถี่สุด) — 8 งวดล่าสุด</div>"
-            f"<div class='big-red'>{hot}</div></div>", unsafe_allow_html=True)
+# ---------- ขั้นตอน 4: สุ่มเลือกหนึ่งชุดจากข้อ 3 แล้วเอาหลักพันของงวดล่าสุดมาต่อหน้า ----------
+random.seed()  # ไม่กำหนด seed ให้สุ่มจริง
+picked3 = random.choice(triplets)
+thousands = last3[-1][0]   # หลักพันของ "งวดล่าสุด"
+four_digit = thousands + picked3
 
-# ───────────── Step 2: จับคู่เลขสองตัวจากเลขงวดก่อนหน้า 3 งวด ─────────────
-special_order = ['4','5','6','2','1','0']  # ลำดับเลขพิเศษ
-last3_partners = partners_from_last3(draws4)
+# ---------- แสดงผล (ฟอร์แมต/ขนาด/สี) ----------
+st.markdown('<div class="card"><h3>1) เลขเดี่ยว (เลือกจากหลักสิบ/หน่วยของ 3 งวดล่าสุด)</h3>'
+            f'<div class="num-red step1">{single_digit}</div></div>', unsafe_allow_html=True)
 
-# จัดลำดับ partner: เอาเลขพิเศษที่ปรากฏใน 3 งวดล่าสุดก่อน (ตามลำดับ special_order)
-ordered = []
-for s in special_order:
-    if s in last3_partners and s not in ordered and s != hot:
-        ordered.append(s)
-# ตามด้วยเลขอื่น ๆ จาก 3 งวดล่าสุด
-for p in last3_partners:
-    if p != hot and p not in ordered:
-        ordered.append(p)
-# ถ้ายังไม่ครบ เติมจากเลขพิเศษที่ไม่อยู่ และเลข 0–9
-for s in special_order:
-    if s != hot and s not in ordered:
-        ordered.append(s)
-for d in [str(i) for i in range(10)]:
-    if d != hot and d not in ordered:
-        ordered.append(d)
+st.markdown('<div class="card"><h3>2) เลขสองตัว (เลือกคัด 5 ชุด โดยจัดลำดับพิเศษ 4,5,6,2,1,0)</h3>'
+            f'<div class="num-red step2">{", ".join(pairs_to_show)}</div></div>', unsafe_allow_html=True)
 
-pairs_all = [hot + p for p in ordered]
-pairs_top5 = pairs_all[:5]
+st.markdown(f'<div class="card"><h3>3) เลขสามตัว (เติมเลขที่หายไปจาก 5 งวดล่าสุด: '
+            f'<span class="num-red">{prefix_digit}</span> นำหน้า)</h3>'
+            f'<div class="num-red step3">{", ".join(triplets)}</div></div>', unsafe_allow_html=True)
 
-st.markdown("<div class='result-box'><div>2) เลขสองตัว (จากเลขเดี่ยว × เลข 3 งวดล่าสุด, เน้น 4-5-6-2-1-0 ก่อน)</div>"
-            f"<div class='mid-red'>{', '.join(pairs_top5)}</div></div>", unsafe_allow_html=True)
+st.markdown('<div class="card"><h3>4) เลขสี่ตัว (สุ่มเลือกจากข้อ 3 แล้วเติมหลักพันของงวดล่าสุด)</h3>'
+            f'<div>เลขสามตัวที่สุ่มได้: <span class="num-red">{picked3}</span> '
+            f'| หลักพันล่าสุด: <span class="num-red">{thousands}</span></div>'
+            f'<div class="num-red step4" style="margin-top:8px;">' + four_digit + '</div></div>',
+            unsafe_allow_html=True)
 
-# ───────────── Step 3: เลขสามตัว = ใส่เลขที่ “หายไป” จาก 5 งวดล่าสุด ไว้ด้านหน้า ─────────────
-missing_prefix = missing_digit_in_last5(draws4)
-triplets = [missing_prefix + p for p in pairs_top5]
-
-st.markdown("<div class='result-box'><div>3) เลขสามตัว — ใส่เลขที่หายไปจาก 5 งวดล่าสุดไว้ด้านหน้า</div>"
-            f"<div class='mid-red'>{', '.join(triplets)}</div></div>", unsafe_allow_html=True)
-
-# ───────────── Step 4: เลขสี่ตัว 1 ชุด (สุ่มเลือกหนึ่งจากข้อ 3) แล้วเติมหลักพันจากงวดล่าสุด ─────────────
-rand_triplet = random.choice(triplets)
-thousands_from_latest = draws4[-1][0]  # หลักพันของงวดล่าสุด = ตัวแรกของสตริง 4 หลักล่าสุด
-four_digit = thousands_from_latest + rand_triplet  # เช่น 9 + 122 → 9122
-
-st.markdown("<div class='result-box'><div>4) เลขสี่ตัว 1 ชุด — สุ่มจากข้อ 3 แล้วใส่หลักพันของงวดล่าสุด</div>"
-            f"<div class='small-red'>{four_digit}</div></div>", unsafe_allow_html=True)
-
-# สรุปเล็ก ๆ
-st.markdown("<hr class='sep'/>", unsafe_allow_html=True)
-st.caption("หมายเหตุ: เป็นการวิเคราะห์เชิงสถิติ/ฮิวริสติก ไม่รับประกันผลลัพธ์จริง")
+st.caption("หมายเหตุ: วิธีนี้เป็นฮิวริสติกเพื่อความบันเทิง ไม่รับประกันผลลัพธ์จริง")
