@@ -1,132 +1,143 @@
 # app.py
 # -*- coding: utf-8 -*-
-import random
 import streamlit as st
-from collections import Counter
+import random
 
-# ---------------- Page config ----------------
+# ── CONFIG ─────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Lao Lotto วางเลข 4 หลัก ทีละบรรทัด 5 งวด",
+    page_title="Lao Lotto — วางเลข 4 หลัก ทีละบรรทัด 5 งวด",
     page_icon="icon.png",
     layout="centered"
 )
 
-# ---------------- Styles (White bg / Blue frame / Red numbers) ----------------
+# ── THEME (พื้นขาว ตัวเลขแดง, หัวข้อสีน้ำเงิน) ─────────────────
 st.markdown("""
 <style>
 .stApp { background:#ffffff; color:#111; }
-.block-container{ max-width:820px; }
-h1.title-blue{
-  color:#0b5ed7; margin:10px 0 18px 0; font-weight:800;
-}
-.frame{
-  border:2px solid #0b5ed7; border-radius:14px; padding:14px 16px; margin:10px 0 18px 0;
-  background:#f8fbff;
-}
-.tag{ display:inline-block; color:#0b5ed7; font-weight:800; margin-right:10px; font-size:1.15rem;}
-.num-big{ color:#d90429; font-weight:900; line-height:1; }
-.num-xl{ font-size:64px; }    /* ข้อ 1 ใหญ่สุด */
-.num-lg{ font-size:42px; }    /* ข้อ 2,3 */
-.num-md{ font-size:36px; }    /* ข้อ 4 */
-.inp{
-  background:#fff;border:1.5px solid #c9d7ff;border-radius:10px;padding:10px 12px;
-}
-.btn > button{
-  background:#0b5ed7 !important;color:#fff !important;border:none !important;
-  border-radius:10px !important;padding:8px 14px !important;font-weight:700 !important;
-}
-.help{ color:#5f6b7a; font-size:0.9rem; }
+.block-container { max-width: 820px; }
+h1.title { color:#0b53b6; margin-bottom: .25rem; }
+.subtitle { color:#0b53b6; margin: 0 0 1rem 0; font-weight:700; }
+.panel { border:2px solid #0b53b6; border-radius:18px; padding:16px 18px; }
+.row { display:flex; flex-direction:column; gap:14px; }
+.badge { background:#0b53b6; color:#fff; padding:3px 10px; border-radius:999px; display:inline-block; font-weight:700; }
+.item { border:2px solid #0b53b6; border-radius:14px; padding:10px 14px; }
+.k1, .k2, .k3, .k4 { color:#d81616; font-weight:900; line-height:1; display:block; }
+.k1 { font-size:64px; letter-spacing:2px; }
+.k2 { font-size:44px; }
+.k3 { font-size:36px; }
+.k4 { font-size:32px; }
+.label { color:#0b53b6; font-weight:800; font-size:18px; margin-bottom:6px; }
+.err { color:#b00020; font-weight:700; }
+textarea, .stTextArea textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 class="title-blue">Lao Lotto วางเลข 4 หลัก ทีละบรรทัด 5 งวด</h1>', unsafe_allow_html=True)
+# ── HEADER ────────────────────────────────────────────────────────
+st.markdown('<h1 class="title">Lao Lotto</h1>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">วางเลข 4 หลัก ทีละบรรทัด 5 งวด</div>', unsafe_allow_html=True)
 
-# ---------------- Input ----------------
-DEFAULT = "8775\n3798\n6828\n0543\n0862"  # ตัวอย่าง 5 งวด
-raw = st.text_area("วางเลข 4 หลัก (5 งวด, ทีละบรรทัด)", value=DEFAULT, height=130, help="ตัวอย่าง: 8775\\n3798\\n6828\\n0543\\n0862", key="inp")
-colb1, colb2 = st.columns([1,1])
-with colb1:
-    rnd_btn = st.button("สุ่มใหม่ผล (ข้อ 2–4)", key="reroll", help="สุ่มชุดที่แสดงใหม่ตามเงื่อนไขเดิม", type="primary", use_container_width=True)
-with colb2:
-    st.write("")  # spacer
+# ── INPUT ─────────────────────────────────────────────────────────
+sample = "8775\n3798\n6828\n0543\n0862"
+raw = st.text_area("ใส่เลข 4 หลัก ทีละบรรทัด (5 งวด)", value=sample, height=140)
 
-def parse_5(raw_text:str):
-    lines = [s.strip() for s in raw_text.splitlines() if s.strip()]
-    # เก็บเฉพาะตัวเลข 4 หลัก และเอาเฉพาะ 5 รายการสุดท้าย
-    nums = [s for s in lines if len(s)==4 and s.isdigit()][-5:]
-    return nums
+# ── PARSE ─────────────────────────────────────────────────────────
+lines = [s.strip() for s in raw.splitlines() if s.strip()]
+valid = [s for s in lines if s.isdigit() and len(s) == 4]
 
-nums = parse_5(raw)
-if len(nums) < 5:
-    st.markdown('<div class="help">กรุณาวางเลข 4 หลักให้ครบ 5 งวด</div>', unsafe_allow_html=True)
+if len(valid) != 5:
+    st.markdown('<div class="err">กรุณาใส่เลข 4 หลักให้ครบ 5 บรรทัด (ตัวเลขเท่านั้น)</div>', unsafe_allow_html=True)
     st.stop()
 
-# ---------------- Core helpers ----------------
-def digits(s): return [c for c in s]  # 4 ตัวอักษร
-def tens(s):   return s[2]            # หลักสิบ (C)
-def ones(s):   return s[3]            # หลักหน่วย (D)
-def thousands(s): return s[0]         # หลักพัน (A)
+# งวดเรียงตามที่วาง: [งวด1, งวด2, งวด3, งวด4, งวด5]
+d1, d2, d3, d4, d5 = valid
 
-# 1) เด่น: จากงวดที่ 3 (ตัวที่ index 2 ของลิสต์ 5 งวด)
-third = nums[2]
-hot_pair = [tens(third), ones(third)]  # 2 และ 8 ในตัวอย่าง
-hot_pair_unique = []
-for d in hot_pair:
-    if d not in hot_pair_unique:
-        hot_pair_unique.append(d)
+# ── LOGIC ─────────────────────────────────────────────────────────
+# 1) เลขเดี่ยว = หลักสิบและหลักหน่วยของ "งวดที่ 3"
+single_a = d3[-2]  # tens
+single_b = d3[-1]  # ones
+singles = [single_a, single_b]  # ตัวเลขเด่น 2 ตัว
 
-# 2) เจาะ: ใช้เลขจากข้อ 1 ไปจับกับ "หลักสิบ" ของ 3 งวดล่าสุด (nums[-3:], ล่าสุดสุดอยู่ท้าย)
-special_set = set(list("456210"))
-recent3 = nums[-3:]
-tens_recent = [tens(x) for x in recent3]  # ได้เลขหลักสิบของสามงวดล่าสุด
+# 2) นำเลขเด่นไปจับกับเลขของ "2 งวดก่อนหน้า" (งวด4, งวด5) เพื่อสร้างเลขสองตัว
+prev_digits = list(dict.fromkeys(list(d4 + d5)))  # รักษาลำดับ & ไม่ซ้ำ
 pairs_all = []
-for h in hot_pair_unique:
-    for t in tens_recent:
-        pair = h + t
-        if pair not in pairs_all:
-            pairs_all.append(pair)
+for s in singles:
+    for p in prev_digits:
+        pairs_all.append(s + p)
 
-# คัดเฉพาะคู่ที่หลักที่สองอยู่ใน special_set
-pairs_filtered = [p for p in pairs_all if p[1] in special_set]
-if not pairs_filtered:
-    # ถ้าไม่มีคู่อะไรผ่าน filter ให้ใช้ pairs_all แทน
-    pairs_filtered = pairs_all[:]
+# คัดคู่ที่มีเลขพิเศษ {4,5,6,2,1,0}
+special = set(list("456210"))
+pairs_filtered = [p for p in pairs_all if (set(p) & special)]
 
-# สุ่ม 5 ชุด (ถ้าน้อยกว่าก็แสดงเท่าที่มี)
-random.seed(None)  # ใช้ seed ตามเวลา
-pairs_show = random.sample(pairs_filtered, k=min(5, len(pairs_filtered)))
+# สุ่ม 5 ชุด (ไม่ซ้ำ) ถ้าไม่พอให้เติมจากทั้งหมด
+random.seed()  # ใช้ seed ระบบ
+choices = list(dict.fromkeys(pairs_filtered))  # unique ตามลำดับ
+if len(choices) < 5:
+    # เติมจาก pairs_all ให้ครบ 5
+    for p in pairs_all:
+        if p not in choices:
+            choices.append(p)
+        if len(choices) >= 5:
+            break
+pairs_pick5 = random.sample(choices, k=min(5, len(choices)))
+if len(pairs_pick5) < 5:
+    # ถ้ายังไม่ครบ (กรณีข้อมูลจำกัด) ให้คัดเพิ่มซ้ำได้
+    while len(pairs_pick5) < 5:
+        pairs_pick5.append(random.choice(choices))
 
-# 3) เน้น: หาเลขที่ "หายไป" จาก 5 งวดล่าสุด แล้วนำมาใส่เป็นหลักหน้า
-all_digits = set("0123456789")
-seen = set("".join(nums))
-missing = sorted(list(all_digits - seen), key=lambda x:int(x))
+# 3) เลขสามตัว = ใส่ "เลขที่หายไปใน 5 งวดล่าสุด" ด้านหน้า (ถ้าไม่มี ให้ใช้เลขที่พบน้อยที่สุด)
+digits_seen = set("".join(valid))
+missing = [str(i) for i in range(10) if str(i) not in digits_seen]
 if missing:
-    prefix = missing[0]   # ใช้ตัวเล็กสุดเพื่อเสถียร
+    prefix = missing[0]  # ตัวแรก
 else:
-    # ถ้าไม่มีเลขหาย เลือกตัวที่พบน้อยสุดแทน
-    cnt = Counter("".join(nums))
+    # หาเลขที่พบน้อยที่สุด
+    from collections import Counter
+    cnt = Counter("".join(valid))
     minc = min(cnt.values())
-    cands = sorted([d for d,c in cnt.items() if c==minc], key=lambda x:int(x))
-    prefix = cands[0]
+    prefix = sorted([d for d, c in cnt.items() if c == minc])[0]
 
-triples_show = [prefix + p for p in pairs_show]  # ใส่ด้านหน้า
+triples = [prefix + p for p in pairs_pick5]
 
-# 4) รวย: เลือกหนึ่งชุดจากข้อ 3 แบบสุ่ม แล้วนำ "หลักพัน" ของงวดล่าสุดมาเติมหน้า
-pick3 = random.choice(triples_show)
-thou = thousands(nums[-1])   # หลักพันของงวดล่าสุด
-four_show = thou + pick3
+# 4) เลขสี่ตัว (1 ชุด) = สุ่มเลือกหนึ่งชุดจากข้อ 3 แล้วเอา "หลักพัน" ของงวดล่าสุด (งวด5) มาใส่หน้า
+thousands = d5[0]
+triple_choice = random.choice(triples)
+quad = thousands + triple_choice
 
-# ---------------- Display (only labels & numbers) ----------------
-# ข้อ 1: เด่น (ใหญ่สุด)
-st.markdown('<div class="frame"><span class="tag">เด่น</span><span class="num-big num-xl">{}</span></div>'.format(" ".join(hot_pair_unique)), unsafe_allow_html=True)
+# ── DISPLAY (เลขสีแดง, พื้นขาว, ตัวใหญ่ลดหลั่น, หัวข้อ/กรอบสีน้ำเงิน) ──────────────
+st.markdown('<div class="panel">', unsafe_allow_html=True)
+st.markdown('<span class="badge">กรอบผลลัพธ์</span>', unsafe_allow_html=True)
+st.markdown('<div class="row">', unsafe_allow_html=True)
 
-# ข้อ 2: เจาะ
-st.markdown('<div class="frame"><span class="tag">เจาะ</span><span class="num-big num-lg">{}</span></div>'.format(", ".join(pairs_show)), unsafe_allow_html=True)
+# เด่น
+st.markdown(f'''
+<div class="item">
+  <div class="label">เด่น</div>
+  <span class="k1">{singles[0]} {singles[1]}</span>
+</div>
+''', unsafe_allow_html=True)
 
-# ข้อ 3: เน้น
-st.markdown('<div class="frame"><span class="tag">เน้น</span><span class="num-big num-lg">{}</span></div>'.format(", ".join(triples_show)), unsafe_allow_html=True)
+# เจาะ
+st.markdown(f'''
+<div class="item">
+  <div class="label">เจาะ</div>
+  <span class="k2">{", ".join(pairs_pick5)}</span>
+</div>
+''', unsafe_allow_html=True)
 
-# ข้อ 4: รวย (1 ชุด)
-st.markdown('<div class="frame"><span class="tag">รวย</span><span class="num-big num-md">{}</span></div>'.format(four_show), unsafe_allow_html=True)
+# เน้น
+st.markdown(f'''
+<div class="item">
+  <div class="label">เน้น</div>
+  <span class="k3">{", ".join(triples)}</span>
+</div>
+''', unsafe_allow_html=True)
 
-st.caption("หมายเหตุ: รูปแบบตามเงื่อนไขที่ระบุ — สุ่มเฉพาะข้อ 2 และ 4 (เปลี่ยนผลได้ด้วยปุ่ม “สุ่มใหม่ผล”).")
+# รวย
+st.markdown(f'''
+<div class="item">
+  <div class="label">รวย</div>
+  <span class="k4">{quad}</span>
+</div>
+''', unsafe_allow_html=True)
+
+st.markdown('</div></div>', unsafe_allow_html=True)
