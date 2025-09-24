@@ -1,11 +1,11 @@
-# app_v3.py
+# app_v4.py
 # -*- coding: utf-8 -*-
 import streamlit as st
 from collections import Counter, defaultdict
 
 # ----------------- PAGE & THEME -----------------
 st.set_page_config(
-    page_title="Lao Lotto V.3",
+    page_title="Lao Lotto V.4",
     page_icon="icon.png",   # วาง icon.png ไว้โฟลเดอร์เดียวกับไฟล์นี้
     layout="centered"
 )
@@ -35,12 +35,6 @@ st.markdown("""
 .num-lg { color:var(--red); font-weight:900; font-size:2.2rem; }
 .num-md { color:var(--red); font-weight:900; font-size:2.0rem; }
 .num-sm { color:var(--red); font-weight:900; font-size:1.7rem; }
-.badge {
-  display:inline-flex; align-items:center; gap:8px;
-  background:#fff; color:var(--ink);
-  border:2px solid var(--red); border-radius:12px;
-  padding:6px 10px; margin:6px 8px 0 0; font-weight:800; font-size:1.2rem;
-}
 .kbd{
   font-family:ui-monospace; background:#eef2ff; border:1px solid #c7d2fe;
   border-radius:6px; padding:2px 6px;
@@ -52,7 +46,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ----------------- HEADER -----------------
-st.markdown('<div class="title">Lao Lotto V.3</div>', unsafe_allow_html=True)
+st.markdown('<div class="title">Lao Lotto V.4</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">กรุณาใส่เลข 4 ตัว 5 งวดล่าสุด</div>', unsafe_allow_html=True)
 
 # ----------------- INPUT -----------------
@@ -86,6 +80,13 @@ def mode_last_digit(block):
     m, _ = cnt.most_common(1)[0]
     return int(m)
 
+def multiset_key3(s):  # คีย์มัลติเซ็ตของ 3 หลัก เช่น '397' -> ('7','9','3') sort
+    return tuple(sorted(s))
+
+def similarity_multiset3(a, b):  # นับจำนวนตัวที่ตรงในเชิงมัลติเซ็ต
+    ca, cb = Counter(a), Counter(b)
+    return sum(min(ca[d], cb[d]) for d in set(ca)|set(cb))
+
 # ----------------- PREP -----------------
 latest = draws[-1]
 A = mod10_of(latest)          # mod10 ล่าสุด
@@ -96,8 +97,7 @@ last_digits = [int(s[-1]) for s in draws]
 F = int(max(digit_cnt.items(), key=lambda x: x[1])[0])  # เลขที่พบบ่อยสุดใน 5 งวด
 T = sum(last_digits) % 10     # ผลรวมหลักหน่วยทั้ง 5 mod10
 
-# ----------------- SINGLE (Top-2) -> เด่น -----------------
-# ระบบให้คะแนน: A, B, F, T + บูสต์ตามความถี่
+# ----------------- 1) เด่น — เลขเดี่ยว (Top-2) -----------------
 single_scores = defaultdict(float)
 for d in [A, B, F, T]:
     single_scores[d] += 1.0
@@ -111,9 +111,10 @@ for dstr, c in digit_cnt.items():
 top2_single = sorted(single_scores.items(), key=lambda x: (-x[1], x[0]))[:2]
 single_display = [str(k) for k, _ in top2_single]
 
-# ----------------- 2-DIGIT (Anchor Top-8, remove reversed duplicates) -> เน้น -----------------
+# ----------------- 2) เน้น — เลขสองตัว (Anchor Top-8 | ตัดเลขสลับซ้ำ) -----------------
 anchor_digit = str(top2_single[0][0])  # เลือกตัวที่คะแนนสูงกว่าเป็น anchor
-def build_pairs_with_anchor_top8(block, anchor_digit: str):
+
+def build_pairs_with_anchor_scored(block, anchor_digit: str):
     latest = block[-1]
     A = mod10_of(latest)
     B = int(latest[-1])
@@ -126,13 +127,12 @@ def build_pairs_with_anchor_top8(block, anchor_digit: str):
     topfreq = [int(d) for d, _ in cnt.most_common(3)]
     pool_digits = set([A, int(M), F] + neighbors + topfreq)
 
-    # สร้างคู่ที่ต้องมี anchor อยู่ในชุด (หน้า/หลังได้)
+    # candidate pairs: ต้องมี anchor อยู่ในคู่
     cand = set()
     for d in pool_digits:
         cand.add(f"{anchor_digit}{d}")
         cand.add(f"{d}{anchor_digit}")
 
-    # ให้คะแนนคู่: ความถี่คู่หน้า/คู่หลัง + ความถี่ตัวเลข + ความใกล้กับคู่ท้ายล่าสุด
     fronts = [s[:2] for s in block]
     backs  = [s[-2:] for s in block]
     last2  = latest[-2:]
@@ -143,42 +143,75 @@ def build_pairs_with_anchor_top8(block, anchor_digit: str):
         pair_scores[p] += 0.08 * cnt.get(str(a), 0) + 0.08 * cnt.get(str(b), 0)
         hamming = (p[0] != last2[0]) + (p[1] != last2[1])
         pair_scores[p] += {0: 0.5, 1: 0.25, 2: 0.0}[hamming]
-
-    # คัด Top-8 แล้วตัดชุดที่ "สลับตำแหน่งซ้ำ" (เช่น 82/28 เหลืออันเดียว)
+    # Top-8 + remove reversed duplicates
     top_sorted = [p for p, _ in sorted(pair_scores.items(), key=lambda x: (-x[1], x[0]))]
     unique_pairs = {}
     for p in top_sorted:
-        key = frozenset(p)       # ใช้เหมือนชุด {a,b}
+        key = frozenset(p)
         if key not in unique_pairs:
             unique_pairs[key] = p
         if len(unique_pairs) == 8:
             break
-    top8_unique = list(unique_pairs.values())
-    return top8_unique
+    pairs8 = list(unique_pairs.values())
+    return pairs8, pair_scores
 
-pairs8 = build_pairs_with_anchor_top8(draws, anchor_digit)
+pairs8, pair_scores = build_pairs_with_anchor_scored(draws, anchor_digit)
+best_pair = pairs8[0] if pairs8 else f"{single_display[0]}{single_display[1]}"
+best_pair_score = pair_scores.get(best_pair, 0.0)
 
-# ----------------- 3-DIGIT (Prefix 10 × Best Pair, remove permutations) -> เจาะลาก -----------------
-# ใช้คู่ที่ดีที่สุดอันดับแรกจากผล pairs8 (ถ้าไม่มี ใช้เลขเดี่ยวสองตัวประกบกัน)
-best_pair_for_triple = pairs8[0] if pairs8 else f"{single_display[0]}{single_display[1]}"
+# ----------------- 3) เจาะลาก — เลขสามตัว (Top-5 แบบให้คะแนน | ตัดสลับซ้ำ) -----------------
+# สร้างผู้ท้าชิงจาก prefix แหล่งสำคัญ แล้ว "เลือก 5 อันดับแรก"
+# แหล่ง prefix: rare (น้อยสุด), topfreq 0..2, A,B,M,F (รวม & unique)
+def rare_digit_in(block):
+    cnt = freq_digits(block)
+    missing = [str(d) for d in range(10) if str(d) not in cnt]
+    if missing:
+        return missing[0]
+    min_count = min(cnt[str(d)] for d in range(10))
+    cands = [str(d) for d in range(10) if cnt[str(d)] == min_count]
+    return sorted(cands, key=int)[0]
 
-# prefix 10 ตัว = 0–9 เรียงจากเลขที่ "ออกน้อย → มาก" ใน 5 งวด
-order = sorted(range(10), key=lambda d: (digit_cnt.get(str(d), 0), d))[:10]
-prefixes10 = [str(d) for d in order]
-triples_raw = [f"{p}{best_pair_for_triple}" for p in prefixes10]
+rare = rare_digit_in(draws)
+topfreq_digits = [d for d, _ in digit_cnt.most_common(3)]
+prefix_pool = {rare, str(A), str(B), str(M), str(F)} | set(topfreq_digits)
+# จำกัดขนาดและเรียงตาม "น้อย → มาก" เพื่อกัน bias ตัวที่ถี่เกิน
+prefix_sorted = sorted(prefix_pool, key=lambda d: (digit_cnt.get(d, 0), int(d)))
+# เตรียมผู้ท้าชิง
+triple_candidates = [f"{p}{best_pair}" for p in prefix_sorted]
 
-# ลบชุดที่ "สลับตำแหน่งซ้ำ" (เช่น 397/973/739 เหลืออันเดียว)
+# คะแนนของ "สามตัว"
+# - พึ่งพาคะแนนคู่ฐาน (normalize)
+# - บวกน้ำหนักความถี่ของตัวเลขทุกหลักใน triple
+# - ความเหมือนกับ last3 ของงวดล่าสุด (มัลติเซ็ต)
+# - บูสต์รูปแบบมัลติเซ็ตที่เคยโผล่ใน 10 งวดล่าสุด (last3)
+last3_latest = latest[-3:]
+hist_last3 = [d[-3:] for d in draws[-10:]]  # ใช้ 5 งวดที่ป้อนมีไม่พอ? ถ้าผู้ใช้ป้อนมากกว่า 5 ก็ยิ่งดี
+hist_ms_count = Counter(multiset_key3(s) for s in hist_last3)
+
+def score_triple(t: str) -> float:
+    # ความถี่ของตัวเลขใน triple
+    freq_sum = sum(digit_cnt.get(ch, 0) for ch in t)
+    # ความเหมือนกับ last3 ล่าสุด (0..3)
+    sim_last = similarity_multiset3(t, last3_latest)
+    # บูสต์รูปแบบตามประวัติ
+    ms = multiset_key3(t)
+    hist_boost = hist_ms_count.get(ms, 0)
+    # normalize / weights
+    pscore = best_pair_score
+    return 0.6*pscore + 0.15*freq_sum + 0.15*sim_last + 0.1*hist_boost
+
+# ตัดสลับซ้ำ (permutation) แล้วคัด Top-5
 unique_triples = {}
-for t in triples_raw:
-    key = frozenset(t)   # ใช้ชุด {a,b,c}
+for t in triple_candidates:
+    key = frozenset(t)
     if key not in unique_triples:
         unique_triples[key] = t
-triples_10 = list(unique_triples.values())
+# ให้คะแนนและเลือก 5 อันดับ
+ranked_triples = sorted(unique_triples.values(), key=lambda t: (-score_triple(t), t))[:5]
 
-# ----------------- 4-DIGIT (Rotations + Fix last=A) -> สีโต (แสดงตัวเดียว) -----------------
+# ----------------- 4) สีโต — เลขสี่ตัว (Rotation + Fix หลักหน่วย = A) -> แสดงตัวเดียว -----------------
 def sim(a, b): return sum(x == y for x, y in zip(a, b))
 quads_all = [r[:-1] + str(A) for r in rotations(latest)]
-# เลือกตัวเดียวที่ "คล้าย" งวดล่าสุดมากที่สุด (จำนวนหลักตรงตำแหน่งเยอะสุด)
 quads_best = sorted(set(quads_all), key=lambda q: (-sim(q, latest), q))[0]
 
 # ----------------- OUTPUT -----------------
@@ -200,9 +233,9 @@ st.markdown(f'''
 
 st.markdown(f'''
 <div class="card">
-  <div class="heading">3) เจาะลาก — เลขสามตัว (Prefix 10 × 1 คู่ | ตัดสลับซ้ำ)</div>
-  <div class="num-md">{"  ".join(triples_10)}</div>
-  <div class="note">*สลับตำแหน่งเองได้ แต่ตัดชุดสลับซ้ำออกจากการแสดงผลแล้ว</div>
+  <div class="heading">3) เจาะลาก — เลขสามตัว (Top-5 | ระบบให้คะแนน | ตัดสลับซ้ำ)</div>
+  <div class="num-md">{"  ".join(ranked_triples)}</div>
+  <div class="note">เกณฑ์คัดเลือก: ความมั่นใจของคู่ฐาน + ความถี่เลข + ความเหมือนกับ 3 หลักท้ายล่าสุด + บูสต์รูปแบบใน 10 งวดหลัง</div>
 </div>
 ''', unsafe_allow_html=True)
 
