@@ -1,10 +1,10 @@
-# app_v6.py
+# app_v7.py
 # -*- coding: utf-8 -*-
 import streamlit as st
 from collections import Counter, defaultdict
 
 st.set_page_config(
-    page_title="Lao Lotto V.6",
+    page_title="Lao Lotto V.7",
     page_icon="🎯",
     layout="centered"
 )
@@ -14,54 +14,49 @@ st.markdown("""
 <style>
 :root{ --blue:#1f57c3; --red:#e0252a; --ink:#0f172a; }
 .stApp { background:#f7f9ff; }
-.block-container{ max-width:980px; }
-.title { color: var(--blue); font-weight:900; font-size: 2rem; line-height:1.1; }
-.subtitle { color:#1f2937; margin-top:4px; font-size:0.95rem; }
+.block-container{ max-width:1024px; }
+.title { color: var(--blue); font-weight:900; font-size: 2.2rem; line-height:1.1; }
+.subtitle { color:#1f2937; margin-top:6px; font-size:1.0rem; }
 .card {
-  background:#ffffff; border:3px solid var(--blue); border-radius:16px;
-  padding:14px 16px; margin:12px 0 16px 0; box-shadow: 0 6px 18px rgba(0,0,0,0.07);
+  background:#ffffff; border:3px solid var(--blue); border-radius:18px;
+  padding:18px 20px; margin:14px 0 18px 0; box-shadow: 0 8px 22px rgba(0,0,0,0.08);
 }
-.heading { font-weight:900; font-size:1.1rem; color:#0f172a; margin-top:6px; }
-.num-xl { color:var(--red); font-weight:900; font-size:2.6rem; display:flex; gap:18px; align-items:baseline; flex-wrap:wrap; }
-.num-xl .label{ font-size:0.95rem; font-weight:800; color:#0f172a; background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; padding:2px 8px; }
-.num-xl .digit{ font-size:3.1rem; font-weight:900; color:var(--red); margin-left:8px; }
-.num-lg { font-weight:900; font-size:2.05rem; line-height:1.25; }
-.num-md { font-weight:900; font-size:1.85rem; line-height:1.25; }
-.num-sm { font-weight:900; font-size:1.65rem; }
-.tag { display:inline-block; padding:2px 8px; border-radius:10px; background:#eef2ff; border:1px solid #c7d2fe; color:#0f172a; font-weight:700; font-size:0.8rem; margin-left:8px;}
-.badge { display:inline-block; padding:4px 10px; border:2px solid var(--red); border-radius:12px; margin:4px 8px 0 0; }
-hr{ border:none; border-top:1px dashed #cbd5e1; margin:6px 0 10px; }
+.heading { font-weight:900; font-size:1.2rem; color:#0f172a; margin:6px 0 10px; }
+.num-xl { color:var(--red); font-weight:900; font-size:3.2rem; display:flex; gap:24px; align-items:baseline; flex-wrap:wrap; }
+.num-xl .label{ font-size:1.05rem; font-weight:800; color:#0f172a; background:#eef2ff; border:1px solid #c7d2fe; border-radius:10px; padding:4px 10px; }
+.num-xl .digit{ font-size:3.6rem; font-weight:900; color:var(--red); margin-left:8px; }
+.num-lg { font-weight:900; font-size:2.6rem; line-height:1.25; }
+.num-md { font-weight:900; font-size:2.2rem; line-height:1.25; }
+.num-sm { font-weight:900; font-size:2.0rem; }
+.tag { display:inline-block; padding:3px 10px; border-radius:12px; background:#eef2ff; border:1px solid #c7d2fe; color:#0f172a; font-weight:700; font-size:0.9rem; margin-left:10px;}
+.badge { display:inline-flex; align-items:baseline; gap:10px; padding:6px 12px; border:2px solid var(--red); border-radius:14px; margin:6px 10px 0 0; }
+.perc { font-size:1.0rem; color:#0f172a; background:#fff; border:1px dashed #c7d2fe; padding:2px 8px; border-radius:10px; }
+hr{ border:none; border-top:1px dashed #cbd5e1; margin:8px 0 12px; }
 .footer { text-align:center; margin: 18px 0 8px 0; color:#475569; font-weight:700; }
-.small { color:#475569; font-size:0.85rem; }
+.small { color:#475569; font-size:0.95rem; }
 
-/* บังคับให้ตัวเลขผลลัพธ์เป็นสีแดงทุกที่ */
+/* สีแดงเข้มให้ตัวเลขผลลัพธ์ทุกที่ */
 .digit-red { color: var(--red) !important; font-weight:900; }
 </style>
 """, unsafe_allow_html=True)
 
 # ----------------- HEADER -----------------
-st.markdown('<div class="title">Lao Lotto V.6 — Statistic-Driven Picks</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">วาง “เลข 4 หลัก” หลายงวด (สถิติจริงที่ออกแล้ว) — ระบบจะวิเคราะห์ทั้งชุดเพื่อหา เด่น/รอง, 2 ตัวคู่บน-ล่าง 5 ชุด (สลับตำแหน่งได้), 3 ตัวล่าง 5 ชุด และ 4 ตัวที่ประกอบจาก 3 ตัว</div>', unsafe_allow_html=True)
+st.markdown('<div class="title">Lao Lotto V.7 — Smoothed Probabilities</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">วางผล 4 หลัก ย้อนหลัง (หลายงวดยิ่งแม่น) → คัด เด่น/รอง, 2 ตัว (ไม่สลับ), 3 ตัวล่าง และ 4 ตัว พร้อมเปอร์เซ็นต์โอกาสจากสถิติจริง + smoothing/back-off</div>', unsafe_allow_html=True)
 
 # ----------------- INPUT -----------------
-ph = ("วางทีละบรรทัด (กี่งวดก็ได้ ≥ 20 จะยิ่งเสถียร)\n"
+ph = ("วางทีละบรรทัด (อย่างน้อย 20 งวดแนะนำ)\n"
       "เช่น:\n9767\n5319\n1961\n4765\n2633\n...")
-raw = st.text_area("วางผลย้อนหลัง (4 หลัก) ทีละบรรทัด", height=220, placeholder=ph)
+raw = st.text_area("วางผลย้อนหลัง (4 หลัก) ทีละบรรทัด", height=260, placeholder=ph)
 rows = [s.strip() for s in raw.splitlines()]
 draws = [s for s in rows if s.isdigit() and len(s) == 4]
 
 st.write(f"อ่านข้อมูลได้ **{len(draws)}** งวด")
 if len(draws) < 20:
-    st.info("ใส่อย่างน้อย 20 งวด เพื่อความเสถียรของสถิติ.", icon="ℹ️")
+    st.info("ใส่อย่างน้อย 20 งวด เพื่อความเสถียรของเปอร์เซ็นต์.", icon="ℹ️")
     st.stop()
 
 # ----------------- HELPERS -----------------
-def multiset_key2(p):  # unordered pair key
-    return tuple(sorted(p))
-
-def multiset_key3(s):  # unordered triple key
-    return tuple(sorted(s))
-
 def normalize_scores(scores_dict):
     vals = list(scores_dict.values())
     lo, hi = min(vals), max(vals)
@@ -69,156 +64,176 @@ def normalize_scores(scores_dict):
         return {k: 1.0 for k in scores_dict}
     return {k: (v - lo) / (hi - lo) for k, v in scores_dict.items()}
 
+def pct(x):  # to percentage string
+    return f"{x*100:.1f}%"
+
 # ----------------- STATS -----------------
 N = len(draws)
 digits_all = "".join(draws)
-cnt_digit_overall = Counter(digits_all)               # ทุกหลักรวมกัน
-cnt_pos0 = Counter([d[0] for d in draws])             # หลักพัน
-cnt_pos1 = Counter([d[1] for d in draws])             # หลักร้อย
-cnt_pos2 = Counter([d[2] for d in draws])             # หลักสิบ
-cnt_pos3 = Counter([d[3] for d in draws])             # หลักหน่วย (ล่าง)
 
-# สถิติ 2 ตัว: หน้า (0-1), กลาง (1-2), ท้าย (2-3)
-pairs_front = Counter([d[:2] for d in draws])
-pairs_mid   = Counter([d[1:3] for d in draws])
-pairs_back  = Counter([d[2:]  for d in draws])
+# ความถี่รายหลัก
+cnt_pos = [Counter([d[i] for d in draws]) for i in range(4)]
+cnt_overall = Counter(digits_all)
 
-# นับแบบ "ไม่สนลำดับ" สำหรับ last-2 (รองรับ "สลับได้")
-pairs_back_unordered = Counter([multiset_key2(d[2:]) for d in draws])
+# สถิติ 2 ตัวท้าย (สิบ-หน่วย) แบบลำดับ
+pairs_back = Counter([d[2:] for d in draws])
 
-# สถิติ 3 ตัวท้าย (ใช้หลักร้อย-สิบ-หน่วย)
+# สถิติ 3 ตัวท้าย (ร้อย-สิบ-หน่วย)
 triples_tail = Counter([d[1:] for d in draws])
 
-# ----------------- SCORING -----------------
-# 1) เด่น/รอง (single digit)
+# สถิติครบ 4 ตัว
+full4 = Counter(draws)
+
+# ความน่าจะเป็นเชิงประจักษ์ของ “เลขที่ตำแหน่ง”
+def p_pos(digit, pos):
+    return cnt_pos[pos].get(digit, 0) / N
+
+# ----------------- SMOOTHED PROBS -----------------
+# พารามิเตอร์ smoothing (ปรับเพื่อให้เปอร์เซ็นต์ดูเสถียรและเน้นสถิติจริง)
+LAMBDA2 = 0.85   # 2 ตัว
+LAMBDA3 = 0.80   # 3 ตัว
+LAMBDA4 = 0.80   # 4 ตัว
+ALPHA   = 0.70   # น้ำหนักให้ dependency ระหว่าง (สิบ-หน่วย)
+
+def prob_pair_last2(a, b):
+    # empirical
+    p_emp = pairs_back.get(a+b, 0) / N
+    # back-off: independent at positions
+    p_ind = p_pos(a,2) * p_pos(b,3)
+    return LAMBDA2 * p_emp + (1 - LAMBDA2) * p_ind
+
+def prob_triple_tail(h, a, b):
+    p_emp = triples_tail.get(h+a+b, 0) / N
+    p_pair = prob_pair_last2(a, b)
+    p_back = ALPHA * (p_pos(h,1) * p_pair) + (1 - ALPHA) * (p_pos(h,1) * p_pos(a,2) * p_pos(b,3))
+    return LAMBDA3 * p_emp + (1 - LAMBDA3) * p_back
+
+def prob_quad(L, h, a, b):
+    p_emp = full4.get(L+h+a+b, 0) / N
+    p_back = p_pos(L,0) * prob_triple_tail(h, a, b)
+    return LAMBDA4 * p_emp + (1 - LAMBDA4) * p_back
+
+# ----------------- RANKING LOGIC -----------------
+# เด่น/รอง: เน้นหลักหน่วย/หลักสิบ (ล่าง) มากที่สุด
 single_scores = defaultdict(float)
 for d in "0123456789":
-    f_all = cnt_digit_overall.get(d, 0) / (4*N)    # ทุกหลัก
-    f_last = cnt_pos3.get(d, 0) / N                # หลักหน่วย
-    f_10   = cnt_pos2.get(d, 0) / N                # หลักสิบ
-    f_100  = cnt_pos1.get(d, 0) / N                # หลักร้อย
-    score = 0.45*f_last + 0.35*f_10 + 0.15*f_all + 0.05*f_100
+    score = 0.50*p_pos(d,3) + 0.35*p_pos(d,2) + 0.10*(cnt_overall.get(d,0)/(4*N)) + 0.05*p_pos(d,1)
     single_scores[d] = score
-
-single_conf = normalize_scores(single_scores)
 singles_ranked = sorted(single_scores.keys(), key=lambda x: (-single_scores[x], x))
 main_digit, sub_digit = singles_ranked[0], singles_ranked[1]
+single_conf = normalize_scores(single_scores)
 
-# 2) สองตัวบน-ล่าง 5 ชุด (สลับตำแหน่งได้)
-cooccur_with = Counter()
-for d in draws:
-    a, b = d[2], d[3]   # หลักสิบ-หน่วย
-    cooccur_with[a] += 1
-    cooccur_with[b] += 1
-
-top_tail_digits = [d for d, _ in Counter([x for d in draws for x in d[2:]]).most_common(6)]
+# 2 ตัวท้าย 5 ชุด (ไม่แสดงสลับ)
+# พูลตัวเลข: เด่น/รอง + top ของหลักสิบ-หน่วย
+top_tail_digits = [d for d, _ in Counter([x for d in draws for x in d[2:]]).most_common(8)]
 pool_digits = list(dict.fromkeys([main_digit, sub_digit] + top_tail_digits))
 
-cand_pairs = []
-pair_seen_unordered = set()
+pair_candidates = []
+seen = set()
 for a in pool_digits:
     for b in pool_digits:
-        if a == b:
+        if a == b: 
             continue
-        score = 0.0
-        score += 0.6 * (pairs_back.get(a+b, 0) + pairs_back.get(b+a, 0))
-        if a in (main_digit, sub_digit) or b in (main_digit, sub_digit):
-            score += 0.4
-        score += 0.1 * (cnt_pos2.get(a,0)+cnt_pos3.get(b,0)+cnt_pos2.get(b,0)+cnt_pos3.get(a,0))/max(N,1)
-        key_u = multiset_key2(a+b)
-        if key_u not in pair_seen_unordered:
-            pair_seen_unordered.add(key_u)
-            cand_pairs.append((a+b, score))
+        key = a+b
+        if key in seen: 
+            continue
+        seen.add(key)
+        pair_candidates.append((key, prob_pair_last2(a,b)))
 
-cand_pairs = sorted(cand_pairs, key=lambda x:(-x[1], x[0]))[:5]
-pairs5 = [p for p,_ in cand_pairs]
+pair_candidates.sort(key=lambda x: (-x[1], x[0]))
+pairs5 = pair_candidates[:5]
 
-# 3) สามตัวล่าง 5 ชุด (จากคู่สองตัว + อีก 1 ตัว)
-triple_scores = {}
-for p in pairs5:
-    a, b = p[0], p[1]  # สิบ-หน่วย
-    top_pos1_digits = [d for d,_ in cnt_pos1.most_common(6)]
-    choices = list(dict.fromkeys([main_digit, sub_digit] + top_pos1_digits))
-    for h in choices:
-        t = h + a + b
-        score = 0.6*triples_tail.get(t,0) + 0.25*cnt_pos1.get(h,0)
-        if h in (main_digit, sub_digit): score += 0.25
-        triple_scores[t] = max(triple_scores.get(t,0), score)
+# 3 ตัวล่าง 5 ชุด: ต่อจากคู่ 2 ตัว + เติมหลักร้อย (เด่น/รอง + top หลักร้อย)
+triple_candidates = {}
+top_pos1 = [d for d,_ in cnt_pos[1].most_common(8)]
+choices_h = list(dict.fromkeys([main_digit, sub_digit] + top_pos1))
+for key, _p in pairs5:
+    a, b = key[0], key[1]
+    for h in choices_h:
+        t = h+a+b
+        triple_candidates[t] = prob_triple_tail(h, a, b)
 
-triples5 = [t for t,_ in sorted(triple_scores.items(), key=lambda x:(-x[1], x[0]))[:5]]
+triples5 = sorted(triple_candidates.items(), key=lambda x: (-x[1], x[0]))[:5]
 
-# 4) สี่ตัว (จากสามตัวที่คัด + ใส่หลักพัน)
-cnt_full = Counter(draws)
-quad_candidates = []
+# 4 ตัว: ใช้ทริปเปิลอันดับ 1 แล้วเติมหลักพัน (เด่น/รอง + top หลักพัน)
+quad_pick, quad_prob = "-", 0.0
 if triples5:
-    t = triples5[0]
-    top_pos0_digits = [d for d,_ in cnt_pos0.most_common(5)]
-    lead_pool = list(dict.fromkeys([main_digit, sub_digit] + top_pos0_digits))
+    best_triple = triples5[0][0]  # h a b
+    h, a, b = best_triple[0], best_triple[1], best_triple[2]
+    top_pos0 = [d for d,_ in cnt_pos[0].most_common(6)]
+    lead_pool = list(dict.fromkeys([main_digit, sub_digit] + top_pos0))
+    quad_list = []
     for L in lead_pool:
-        quad_candidates.append(L + t)
-
-quad_pick = max(quad_candidates, key=lambda q: cnt_full.get(q,0)) if quad_candidates else (singles_ranked[0] + (triples5[0] if triples5 else ""))
+        q = L + h + a + b
+        quad_list.append((q, prob_quad(L, h, a, b)))
+    quad_list.sort(key=lambda x: (-x[1], x[0]))
+    if quad_list:
+        quad_pick, quad_prob = quad_list[0]
 
 # ----------------- OUTPUT -----------------
 # เด่น / รอง
 st.markdown("""
 <div class="card">
-  <div class="heading">เด่น / รอง (จากสถิติทั้งหมด)</div>
+  <div class="heading">เด่น / รอง (ถ่วงน้ำหนักหลักสิบ-หน่วย)</div>
   <div class="num-xl">
 """, unsafe_allow_html=True)
 st.markdown(
-    f"<span><span class='label'>เด่น</span><span class='digit digit-red'>{main_digit}</span>"
-    f"<span class='tag'>conf ~ {single_conf[main_digit]*100:.0f}%</span></span>  "
-    f"<span><span class='label'>รอง</span><span class='digit digit-red'>{sub_digit}</span>"
+    f"<span><span class='label'>เด่น</span>"
+    f"<span class='digit digit-red'>{main_digit}</span>"
+    f"<span class='tag'>conf ~ {single_conf[main_digit]*100:.0f}%</span></span>"
+    f"  <span><span class='label'>รอง</span>"
+    f"<span class='digit digit-red'>{sub_digit}</span>"
     f"<span class='tag'>conf ~ {single_conf[sub_digit]*100:.0f}%</span></span>",
     unsafe_allow_html=True
 )
 st.markdown("</div></div>", unsafe_allow_html=True)
 
-# 2 ตัว (บน-ล่างสลับได้) 5 ชุด
-st.markdown("""
+# 2 ตัว (ไม่สลับ) + % โอกาส
+pairs_html = "  ".join([
+    f"<span class='badge'><span class='digit-red'>{p}</span>"
+    f"<span class='perc'>{pct(prob)}</span></span>"
+    for p, prob in pairs5
+])
+st.markdown(f"""
 <div class="card">
-  <div class="heading">สองตัวคู่ (บน-ล่างสลับได้) — 5 ชุด</div>
-  <div class="small">หมายเหตุ: คัดจากสถิติหลักสิบ-หน่วยทั้งหมด และบูสต์ชุดที่มี “เด่น/รอง” ร่วม</div>
-  <div class="num-lg digit-red">
+  <div class="heading">สองตัวคู่ (บน-ล่าง ไม่สลับ) — 5 ชุด</div>
+  <div class="num-lg">{pairs_html}</div>
+</div>
 """, unsafe_allow_html=True)
-pairs_html = "  ".join([f"<span class='digit-red'>{p}</span> / <span class='digit-red'>{p[1]}{p[0]}</span>" for p in pairs5])
-st.markdown(pairs_html, unsafe_allow_html=True)
-st.markdown("</div></div>", unsafe_allow_html=True)
 
-# 3 ตัวล่าง 5 ชุด
-st.markdown("""
+# 3 ตัวล่าง + % โอกาส
+triples_html = "  ".join([
+    f"<span class='badge'><span class='digit-red'>{t}</span>"
+    f"<span class='perc'>{pct(prob)}</span></span>"
+    for t, prob in triples5
+]) if triples5 else "-"
+st.markdown(f"""
 <div class="card">
-  <div class="heading">สามตัวล่าง — 5 ชุด (จากคู่สองตัว + หลักร้อยที่เป็นไปได้)</div>
-  <div class="num-md digit-red">
+  <div class="heading">สามตัวล่าง — 5 ชุด</div>
+  <div class="num-md">{triples_html}</div>
+</div>
 """, unsafe_allow_html=True)
-triples_html = "  ".join([f"<span class='digit-red'>{t}</span>" for t in triples5]) if triples5 else "-"
-st.markdown(triples_html, unsafe_allow_html=True)
-st.markdown("</div></div>", unsafe_allow_html=True)
 
-# 4 ตัว (จากสามตัว + ใส่หลักพัน)
-st.markdown("""
+# 4 ตัว + % โอกาส
+quad_html = (f"<span class='badge'><span class='digit-red'>{quad_pick}</span>"
+             f"<span class='perc'>{pct(quad_prob)}</span></span>") if quad_pick != "-" else "-"
+st.markdown(f"""
 <div class="card">
-  <div class="heading">สี่ตัว (ประกอบจากสามตัวที่คัด + ใส่หลักพันจาก เด่น/รอง/Top หลักพัน)</div>
-  <div class="num-sm digit-red">
+  <div class="heading">สี่ตัว (จากสามตัวอันดับ 1 + หลักพันที่เป็นไปได้)</div>
+  <div class="num-sm">{quad_html}</div>
+</div>
 """, unsafe_allow_html=True)
-quad_html = f"<span class='digit-red'>{quad_pick}</span>" if quad_pick else "-"
-st.markdown(quad_html, unsafe_allow_html=True)
-st.markdown("</div></div>", unsafe_allow_html=True)
 
-# สรุปสถิติ (โปร่งใส)
-with st.expander("ดูรายละเอียดสถิติที่ใช้คำนวณ / วิธีคิด (โปร่งใส)"):
+# อธิบายสั้น ๆ
+with st.expander("ดูวิธีคิดเปอร์เซ็นต์ (smoothing/back-off)"):
     st.markdown(f"""
-- งวดทั้งหมดที่ใช้วิเคราะห์: **{N}**  
-- ความถี่หลักหน่วย (Top 5): {", ".join([f"{d}:{cnt_pos3[d]}" for d,_ in cnt_pos3.most_common(5)])}  
-- ความถี่หลักสิบ (Top 5): {", ".join([f"{d}:{cnt_pos2[d]}" for d,_ in cnt_pos2.most_common(5)])}  
-- ความถี่หลักร้อย (Top 5): {", ".join([f"{d}:{cnt_pos1[d]}" for d,_ in cnt_pos1.most_common(5)])}  
-- ความถี่หลักพัน (Top 5): {", ".join([f"{d}:{cnt_pos0[d]}" for d,_ in cnt_pos0.most_common(5)])}  
-
-**สูตรเด่น/รอง:** 0.45×freq(หลักหน่วย) + 0.35×freq(หลักสิบ) + 0.15×freq(ทุกหลักรวม) + 0.05×freq(หลักร้อย)  
-**สองตัว:** เน้น last-2 ทั้งแบบตรงและสลับ + บูสต์ถ้ามีเด่น/รองร่วม  
-**สามตัวล่าง:** ต่อจากคู่สองตัว แล้วเลือกหลักร้อยจาก (เด่น/รอง/Top หลักร้อย) โดยอิงสถิติ 3 ตัวท้าย  
-**สี่ตัว:** ใช้สามตัวที่ดีที่สุด แล้วใส่หลักพันจาก (เด่น/รอง/Top หลักพัน)  
+- งวดที่ใช้วิเคราะห์: **{N}**  
+- สูตรโดยสรุป  
+  - **2 ตัว (สิบ-หน่วย)**:  \\(\\hat p= \\lambda_2\\,\\texttt{{freq}}/N + (1-\\lambda_2)\\,P(สิบ)P(หน่วย)\\), ที่นี่ \\(\\lambda_2={LAMBDA2}\\)  
+  - **3 ตัว (ร้อย-สิบ-หน่วย)**:  \\(\\hat p= \\lambda_3\\,\\texttt{{freq}}/N + (1-\\lambda_3)\\,[\\alpha\\,P(ร้อย)\\,\\hat p_{{2ตัว}} + (1-\\alpha)\\,P(ร้อย)P(สิบ)P(หน่วย)]\\), โดย \\(\\lambda_3={LAMBDA3},\\ \\alpha={ALPHA}\\)  
+  - **4 ตัว (พัน-ร้อย-สิบ-หน่วย)**:  \\(\\hat p= \\lambda_4\\,\\texttt{{freq}}/N + (1-\\lambda_4)\\,P(พัน)\\,\\hat p_{{3ตัว}}\\), โดย \\(\\lambda_4={LAMBDA4}\\)  
+- เด่น/รอง: ถ่วงน้ำหนัก **หลักหน่วย 50% + หลักสิบ 35%** + (รวม/หลักร้อย) 15% เพื่อเน้นล่าง
+- ระบบคัด **Top-k ตามเปอร์เซ็นต์ที่สูงที่สุด** ในแต่ละหมวด
     """)
 
 st.markdown('<div class="footer">ลิขสิทธิ์@Phatarit#2025</div>', unsafe_allow_html=True)
