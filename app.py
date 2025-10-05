@@ -19,7 +19,7 @@ st.markdown("""
 }
 .heading { font-weight:900; font-size:1.25rem; color:#0f172a; margin:8px 0 12px; }
 
-/* ปรับขนาดใหญ่ขึ้น */
+/* ขยาย "เด่น/รอง" ให้ใหญ่ขึ้นชัดเจน */
 .num-xl { color:var(--red); font-weight:900; font-size:4.2rem; display:flex; gap:40px; align-items:baseline; flex-wrap:wrap; justify-content:center;}
 .num-xl .label{ font-size:1.4rem; font-weight:800; color:#0f172a; background:#eef2ff; border:2px solid #c7d2fe; border-radius:12px; padding:6px 14px; }
 .num-xl .digit{ font-size:4.8rem; font-weight:900; color:var(--red); margin-left:12px; }
@@ -47,63 +47,92 @@ ph = "วางผลย้อนหลัง (4 หลัก) ทีละบ�
 raw = st.text_area("ผลย้อนหลัง (≥20 งวด เพื่อความแม่นยำ)", height=250, placeholder=ph)
 draws = [s.strip() for s in raw.splitlines() if s.strip().isdigit() and len(s.strip())==4]
 st.write(f"อ่านข้อมูลได้ **{len(draws)}** งวด")
-if len(draws)<20: st.stop()
+if len(draws)<20:
+    st.info("ใส่อย่างน้อย 20 งวด เพื่อความเสถียรของเปอร์เซ็นต์.", icon="ℹ️")
+    st.stop()
 
-# ----------------- HELPER -----------------
+# ----------------- HELPERS -----------------
 def pct(x): return f"{x*100:.1f}%"
 def normalize_scores(sc):
-    v=list(sc.values());lo,hi=min(v),max(v)
+    v=list(sc.values()); lo,hi=min(v),max(v)
     return {k:(v_ - lo)/(hi-lo) if hi>lo else 1 for k,v_ in sc.items()}
 
 # ----------------- STATS -----------------
 N=len(draws)
-cnt_pos=[Counter([d[i] for d in draws]) for i in range(4)]
-pairs_back=Counter([d[2:] for d in draws])
-triples_tail=Counter([d[1:] for d in draws])
+cnt_pos=[Counter([d[i] for d in draws]) for i in range(4)]   # pos 0..3
+pairs_back=Counter([d[2:] for d in draws])                   # AB
+triples_tail=Counter([d[1:] for d in draws])                 # HAB
 full4=Counter(draws)
 cnt_overall=Counter("".join(draws))
 def p_pos(d,pos): return cnt_pos[pos].get(d,0)/N
 
-# ----------------- SMOOTHED PROB -----------------
+# ----------------- SMOOTHED PROBS -----------------
 L2,L3,L4,ALPHA=0.85,0.80,0.80,0.70
 def p_pair(a,b):
-    return L2*(pairs_back.get(a+b,0)/N)+(1-L2)*(p_pos(a,2)*p_pos(b,3))
+    # 2 ตัวท้าย (สิบ-หน่วย) แบบ smoothing
+    return L2*(pairs_back.get(a+b,0)/N) + (1-L2)*(p_pos(a,2)*p_pos(b,3))
 def p_triple(h,a,b):
+    # 3 ตัวท้าย (ร้อย-สิบ-หน่วย) แบบ smoothing + back-off
     p_emp=triples_tail.get(h+a+b,0)/N
-    p_back=ALPHA*p_pos(h,1)*p_pair(a,b)+(1-ALPHA)*p_pos(h,1)*p_pos(a,2)*p_pos(b,3)
-    return L3*p_emp+(1-L3)*p_back
+    p_back=ALPHA*p_pos(h,1)*p_pair(a,b) + (1-ALPHA)*p_pos(h,1)*p_pos(a,2)*p_pos(b,3)
+    return L3*p_emp + (1-L3)*p_back
 def p_quad(L,h,a,b):
-    return L4*(full4.get(L+h+a+b,0)/N)+(1-L4)*p_pos(L,0)*p_triple(h,a,b)
+    # 4 ตัวเต็ม
+    return L4*(full4.get(L+h+a+b,0)/N) + (1-L4)*p_pos(L,0)*p_triple(h,a,b)
 
 # ----------------- MAIN CALC -----------------
-# เด่น/รอง
+# เด่น/รอง (ถ่วงน้ำหนักหลักสิบ-หน่วย)
 sc=defaultdict(float)
 for d in "0123456789":
     sc[d]=0.5*p_pos(d,3)+0.35*p_pos(d,2)+0.1*(cnt_overall[d]/(4*N))+0.05*p_pos(d,1)
-rank=sorted(sc,key=lambda x:(-sc[x],x));main,sub=rank[0],rank[1]
+rank=sorted(sc,key=lambda x:(-sc[x],x)); main,sub=rank[0],rank[1]
 conf=normalize_scores(sc)
 
-# 2 ตัว
+# 2 ตัว (บน-ล่าง ไม่สลับ) — คัด 5 ชุด
 top_tail=[d for d,_ in Counter([x for d in draws for x in d[2:]]).most_common(8)]
 pool=list(dict.fromkeys([main,sub]+top_tail))
 pairs=[(a+b,p_pair(a,b)) for a in pool for b in pool if a!=b]
-pairs=sorted(pairs,key=lambda x:(-x[1],x[0]))[:5]
+pairs.sort(key=lambda x:(-x[1],x[0]))
+pairs=pairs[:5]
 
-# 3 ตัว
-top_h=[d for d,_ in cnt_pos[1].most_common(8)]
-H=list(dict.fromkeys([main,sub]+top_h))
-triples=[(h+a+b,p_triple(h,a,b)) for h in H for a,b,_ in pairs[:5]]
-triples=sorted(triples,key=lambda x:(-x[1],x[0]))[:5]
+# 3 ตัวล่าง — คัด 5 ชุด
+triples=[]
+if pairs:
+    top_h=[d for d,_ in cnt_pos[1].most_common(8)]
+    H=list(dict.fromkeys([main,sub]+top_h))
+    # 🔧 FIX: iterate correctly over (pair_string, prob)
+    triple_scores={}
+    for pair_key, _prob in pairs:
+        a,b = pair_key[0], pair_key[1]
+        for h in H:
+            t = h+a+b
+            triple_scores[t] = p_triple(h,a,b)
+    triples = sorted(triple_scores.items(), key=lambda x:(-x[1], x[0]))[:5]
 
-# 4 ตัว
-quad="-";qp=0
+# 4 ตัว — เลือกจากสามตัวอันดับ 1 + หลักพัน (main/sub/top)
+quad="-"; qp=0.0
 if triples:
-    h,a,b=triples[0][0]
+    best_triple = triples[0][0]    # string 'hab'
+    h,a,b = best_triple[0], best_triple[1], best_triple[2]
     top_L=[d for d,_ in cnt_pos[0].most_common(6)]
     Ls=list(dict.fromkeys([main,sub]+top_L))
     qlist=[(L+h+a+b,p_quad(L,h,a,b)) for L in Ls]
     qlist.sort(key=lambda x:(-x[1],x[0]))
-    quad,qp=qlist[0]
+    quad, qp = qlist[0]
+elif pairs:
+    # เผื่อกรณี triples ว่าง: สร้าง 4 ตัวจากคู่บนสุด + เด่นเป็นหลักร้อย/พัน
+    a,b = pairs[0][0][0], pairs[0][0][1]
+    h_candidates = list(dict.fromkeys([main,sub] + [d for d,_ in cnt_pos[1].most_common(4)]))
+    L_candidates = list(dict.fromkeys([main,sub] + [d for d,_ in cnt_pos[0].most_common(4)]))
+    best_q = "-"
+    best_p = 0.0
+    for h in h_candidates:
+        for L in L_candidates:
+            q = L+h+a+b
+            p = p_quad(L,h,a,b)
+            if p > best_p:
+                best_q, best_p = q, p
+    quad, qp = best_q, best_p
 
 # ----------------- OUTPUT -----------------
 st.markdown(f"""
@@ -118,13 +147,23 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-pairs_html="  ".join([f"<span class='badge'><span class='digit-red'>{p}</span><span class='perc'>{pct(prob)}</span></span>" for p,prob in pairs])
-st.markdown(f"<div class='card'><div class='heading'>สองตัวคู่ (บน-ล่าง ไม่สลับ) — 5 ชุด</div><div class='num-lg'>{pairs_html}</div></div>",unsafe_allow_html=True)
+# 2 ตัว
+pairs_html = "  ".join([
+    f"<span class='badge'><span class='digit-red'>{p}</span><span class='perc'>{pct(prob)}</span></span>"
+    for p, prob in pairs
+]) if pairs else "<span class='perc'>ไม่พอข้อมูลคัด 2 ตัว</span>"
+st.markdown(f"<div class='card'><div class='heading'>สองตัวคู่ (บน-ล่าง ไม่สลับ) — 5 ชุด</div><div class='num-lg'>{pairs_html}</div></div>", unsafe_allow_html=True)
 
-triples_html="  ".join([f"<span class='badge'><span class='digit-red'>{t}</span><span class='perc'>{pct(prob)}</span></span>" for t,prob in triples])
-st.markdown(f"<div class='card'><div class='heading'>สามตัวล่าง — 5 ชุด</div><div class='num-md'>{triples_html}</div></div>",unsafe_allow_html=True)
+# 3 ตัว
+triples_html = "  ".join([
+    f"<span class='badge'><span class='digit-red'>{t}</span><span class='perc'>{pct(prob)}</span></span>"
+    for t, prob in triples
+]) if triples else "<span class='perc'>ยังคัดไม่ได้ (ข้อมูลไม่พอ)</span>"
+st.markdown(f"<div class='card'><div class='heading'>สามตัวล่าง — 5 ชุด</div><div class='num-md'>{triples_html}</div></div>", unsafe_allow_html=True)
 
-quad_html=f"<span class='badge'><span class='digit-red'>{quad}</span><span class='perc'>{pct(qp)}</span></span>"
-st.markdown(f"<div class='card'><div class='heading'>สี่ตัว (จากสามตัวอันดับ 1 + หลักพัน)</div><div class='num-sm'>{quad_html}</div></div>",unsafe_allow_html=True)
+# 4 ตัว
+quad_html = (f"<span class='badge'><span class='digit-red'>{quad}</span><span class='perc'>{pct(qp)}</span></span>"
+             if quad != "-" else "<span class='perc'>ยังคัดไม่ได้</span>")
+st.markdown(f"<div class='card'><div class='heading'>สี่ตัว (จากสามตัวอันดับ 1 + หลักพัน)</div><div class='num-sm'>{quad_html}</div></div>", unsafe_allow_html=True)
 
-st.markdown('<div class="footer">ลิขสิทธิ์@Phatarit#2025</div>',unsafe_allow_html=True)
+st.markdown('<div class="footer">ลิขสิทธิ์@Phatarit#2025</div>', unsafe_allow_html=True)
