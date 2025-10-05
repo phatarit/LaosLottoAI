@@ -1,4 +1,4 @@
-# app_v7.1.py
+# app_v7.1_10only.py
 # -*- coding: utf-8 -*-
 import streamlit as st
 from collections import Counter, defaultdict
@@ -35,6 +35,7 @@ st.markdown("""
 
 /* ตัวเลขแดงทั้งหมด */
 .digit-red { color: var(--red) !important; font-weight:900; }
+.tip { display:inline-block; margin-top:6px; padding:6px 10px; background:#fff7ed; border:1px solid #fdba74; color:#7c2d12; border-radius:10px; font-weight:700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -43,13 +44,20 @@ st.markdown('<div class="title">Lao Lotto V.7.1 — Smoothed Probabilities</div>
 st.markdown('<div class="subtitle">ระบบวิเคราะห์จากสถิติจริง (Smoothing / Back-off) พร้อมเปอร์เซ็นต์ความน่าจะเป็น</div>', unsafe_allow_html=True)
 
 # ----------------- INPUT -----------------
-ph = "วางผลย้อนหลัง (4 หลัก) ทีละบรรทัด เช่น 9767\\n5319\\n1961 ..."
-raw = st.text_area("ผลย้อนหลัง (≥20 งวด เพื่อความแม่นยำ)", height=250, placeholder=ph)
-draws = [s.strip() for s in raw.splitlines() if s.strip().isdigit() and len(s.strip())==4]
-st.write(f"อ่านข้อมูลได้ **{len(draws)}** งวด")
-if len(draws)<20:
-    st.info("ใส่อย่างน้อย 20 งวด เพื่อความเสถียรของเปอร์เซ็นต์.", icon="ℹ️")
+ph = "กรุณาวาง 'งวดล่าสุด 10 งวด' (4 หลัก/บรรทัด) เช่น 9767\\n5319\\n1961 ..."
+st.markdown("<span class='tip'>คำชี้แจง: กรุณาลงงวดล่าสุด 10 งวด</span>", unsafe_allow_html=True)
+raw = st.text_area("ผลย้อนหลัง (ใช้เฉพาะ 10 งวดล่าสุดจากรายการที่วาง)", height=260, placeholder=ph)
+
+# อ่านข้อมูล
+all_draws = [s.strip() for s in raw.splitlines() if s.strip().isdigit() and len(s.strip())==4]
+st.write(f"อ่านข้อมูลได้ทั้งหมด **{len(all_draws)}** งวด")
+if len(all_draws) < 10:
+    st.info("กรุณาวางอย่างน้อย 10 งวดล่าสุด (ระบบจะใช้เฉพาะ 10 งวดท้ายสุดอัตโนมัติ).", icon="ℹ️")
     st.stop()
+
+# ใช้เฉพาะ 10 งวดล่าสุด
+draws = all_draws[-10:]
+st.write("กำลังวิเคราะห์ **10 งวดล่าสุด** จากรายการที่วางมา ✅")
 
 # ----------------- HELPERS -----------------
 def pct(x): return f"{x*100:.1f}%"
@@ -67,6 +75,7 @@ cnt_overall=Counter("".join(draws))
 def p_pos(d,pos): return cnt_pos[pos].get(d,0)/N
 
 # ----------------- SMOOTHED PROBS -----------------
+# (Default) หากต้องการ Hybrid ให้ค่อยอัปเกรดเป็น v7.2 ภายหลังได้
 L2,L3,L4,ALPHA=0.85,0.80,0.80,0.70
 def p_pair(a,b):
     # 2 ตัวท้าย (สิบ-หน่วย) แบบ smoothing
@@ -100,7 +109,6 @@ triples=[]
 if pairs:
     top_h=[d for d,_ in cnt_pos[1].most_common(8)]
     H=list(dict.fromkeys([main,sub]+top_h))
-    # 🔧 FIX: iterate correctly over (pair_string, prob)
     triple_scores={}
     for pair_key, _prob in pairs:
         a,b = pair_key[0], pair_key[1]
@@ -137,7 +145,7 @@ elif pairs:
 # ----------------- OUTPUT -----------------
 st.markdown(f"""
 <div class="card">
-  <div class="heading">เด่น / รอง (เน้นหลักสิบ-หน่วย)</div>
+  <div class="heading">เด่น / รอง (เน้นหลักสิบ-หน่วย) — ใช้เฉพาะ 10 งวดล่าสุด</div>
   <div class="num-xl">
     <span><span class="label">เด่น</span><span class="digit digit-red">{main}</span>
     <span class="tag">conf ~ {conf[main]*100:.0f}%</span></span>
