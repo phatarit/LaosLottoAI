@@ -59,29 +59,25 @@ N = len(draws)
 recent5 = draws[-5:] if N >= 5 else draws
 
 # ----------------- HELPERS -----------------
-def pct(x): 
+def pct(x):
     try:
         return f"{x*100:.1f}%"
     except:
         return "—"
 
 def safe_div(a,b,eps=1e-9): return a/ b if b>0 else 0.0
+
 def normalize_scores(sc):
     v=list(sc.values()); lo,hi=min(v),max(v)
     return {k:(v_ - lo)/(hi-lo) if hi>lo else 1.0 for k,v_ in sc.items()}
 
-def logit(p,eps=1e-6): 
-    p = min(max(p,eps),1-eps)
-    return math.log(p/(1-p))
-
-def sigmoid(x): 
+def sigmoid(x):
     try:
         return 1.0/(1.0+math.exp(-x))
     except OverflowError:
         return 0.0 if x<-50 else 1.0
 
 def quantile_bins(xs, qs):
-    # return (bin_edges, bin_idx_of_each_x)
     xs_np=np.array(xs)
     edges=np.quantile(xs_np, qs)
     # ensure strictly increasing
@@ -92,13 +88,16 @@ def quantile_bins(xs, qs):
     return edges, idxs
 
 def isotonic_from_bins(scores, labels, n_bins=10):
-    """Quantile-binning -> empirical rate per bin -> isotonic (cumulative max) -> piecewise-linear map"""
+    """
+    Quantile-binning -> empirical rate per bin -> isotonic (cumulative max) -> piecewise-linear map
+    Fallback: temperature-style logistic if sample is too small.
+    """
     if len(scores) != len(labels) or len(scores) < max(12, n_bins):
-        # fallback: temperature scaling-ish
+        # fallback: soft logistic scaling based on min-max normalized score
         s = np.array(scores, dtype=float)
         s = (s - s.min())/(s.max()-s.min()+1e-12)
         T = 1.5  # temperature (>1 makes softer)
-        return lambda x: sigmoid((x-0.5)*4.0/T)
+        return lambda x: sigmoid(( (x - s.min())/(s.max()-s.min()+1e-12) - 0.5 )*4.0/T)
 
     qs = np.linspace(0.1,0.9,n_bins-1)  # internal cut points
     edges, idxs = quantile_bins(scores, qs)
@@ -115,19 +114,18 @@ def isotonic_from_bins(scores, labels, n_bins=10):
             rates.append(float(np.mean(bin_labels[k])))
         else:
             centers.append(0.0); rates.append(0.0)
-    # isotonicization (make non-decreasing)
+    # isotonicization (non-decreasing)
     iso_rates=[]
     cur=-1.0
     for r in rates:
         cur=max(cur, r)
         iso_rates.append(cur)
-    # ensure strictly in (0,1)
+    # keep inside (0,1)
     iso_rates=[min(max(r,1e-6),1-1e-6) for r in iso_rates]
     # sort by centers
     pairs=sorted(zip(centers,iso_rates))
     xs=[p[0] for p in pairs]; ys=[p[1] for p in pairs]
     def cal_fn(x):
-        # linear interpolate on (xs, ys)
         if x<=xs[0]: return ys[0]
         if x>=xs[-1]: return ys[-1]
         import bisect
@@ -159,9 +157,6 @@ pB={b: p_pos(b,3) for b in digits}
 pAB={}
 for a in digits:
     for b in digits:
-        if a==b: 
-            # อนุญาตเท่ากันก็ได้ แต่จะลง penalty ตอนจัดอันดับคู่
-            pass
         key=a+b
         pAB[key]=safe_div(pairs_back.get(key,0), N)
 
@@ -172,7 +167,7 @@ condA_givenB = {(a,b): (pairs_back.get(a+b,0)+eps) / (cnt_pos[3].get(b,0)+10*eps
 # PMI for pair (scale: log)
 PMI={(a+b): math.log( safe_div(pAB[a+b]+eps, (pA[a]+eps)*(pB[b]+eps) ) ) for a in digits for b in digits}
 
-# ----------------- SMOOTHED PROBS (เหมือน v7.1 แต่จะมี penalty + hybrid ใช้ตอนเลือก pool) -----------------
+# ----------------- SMOOTHED PROBS -----------------
 L2,L3,L4,ALPHA=0.85,0.80,0.80,0.70
 
 def p_pair_smooth(a,b):
@@ -188,33 +183,30 @@ def p_quad_smooth(L,h,a,b):
     return L4*p_emp + (1-L4)*p_pos(L,0)*p_triple_smooth(h,a,b)
 
 # ----------------- PENALTIES -----------------
-# - ลด bias จากลวดลายซ้ำบ่อยในหน้าต่างสั้น
-# - ลดคะแนนคู่/สามตัวที่ชนกับผลงวดล่าสุดโดยตรง (soft)
-last = draws[-1]  # งวดล่าสุด
+last = draws[-1]             # งวดล่าสุด
 last_AB = last[2:]
 last_H = last[1]
 
-G_pair_freq = 0.15  # ยิ่งสูงยิ่งหักคะแนนคู่ที่ถี่มาก
+G_pair_freq = 0.15  # หักคะแนนคู่ที่ถี่มาก
 G_hit_last = 0.08   # หักถ้าชนงวดล่าสุด
-G_same_digit = 0.04 # หักสำหรับ a==b (ถ้าอนุญาต)
+G_same_digit = 0.04 # หัก a==b
 def apply_pair_penalty(a,b, raw):
     penalty = 0.0
     f = pAB[a+b]
-    penalty += G_pair_freq * (f**2)     # โด่งมากใน sample → หัก
+    penalty += G_pair_freq * (f**2)
     if (a+b)==last_AB: penalty += G_hit_last
     if a==b: penalty += G_same_digit
     return max(raw - penalty, 0.0)
 
 def apply_triple_penalty(h,a,b, raw):
     penalty = 0.0
-    if h==last_H and (a+b)==last_AB:  # สามตัวท้ายเหมือนงวดล่าสุด
+    if h==last_H and (a+b)==last_AB:
         penalty += 0.10
-    # ลดทอนซ้ำบ่อยจากคู่ AB เช่นกัน (เบากว่า)
     penalty += 0.07 * (pAB[a+b]**2)
     return max(raw - penalty, 0.0)
 
 # ----------------- CALIBRATION DATASET (in-sample) -----------------
-# ใช้ทุกคู่ (a,b) เป็น population; label=1 ถ้าเคยเกิดใน 10 งวด, 0 ถ้าไม่เคย
+# pairs
 pair_scores=[]; pair_labels=[]
 for a in digits:
     for b in digits:
@@ -224,7 +216,7 @@ for a in digits:
         pair_labels.append(1 if pairs_back.get(a+b,0)>0 else 0)
 cal_pair = isotonic_from_bins(pair_scores, pair_labels, n_bins=10)
 
-# triples: ใช้ทุก (h,a,b)
+# triples
 triple_scores=[]; triple_labels=[]
 for h in digits:
     for a in digits:
@@ -235,36 +227,29 @@ for h in digits:
             triple_labels.append(1 if triples_tail.get(h+a+b,0)>0 else 0)
 cal_triple = isotonic_from_bins(triple_scores, triple_labels, n_bins=12)
 
-# quads: ใช้เฉพาะที่เคยเกิดเป็น full4 เป็น label=1, ส่วนที่ไม่เคยเกิดสุ่มบางส่วนเป็น 0 เพื่อบาลานซ์
+# quads (positives + sampled negatives)
 quad_scores=[]; quad_labels=[]
-# positives
-for q,c in full4.items():
+for q,c in full4.items():  # positives
     L,H,A,B = q[0],q[1],q[2],q[3]
     s = p_quad_smooth(L,H,A,B)
     quad_scores.append(s); quad_labels.append(1)
-# negatives (สุ่มจาก 200 ตัวอย่าง)
-rng = np.random.default_rng(42)
+rng = np.random.default_rng(42)  # negatives
 neg_samples=200
 for _ in range(neg_samples):
     L = rng.integers(0,10); H = rng.integers(0,10); A = rng.integers(0,10); B = rng.integers(0,10)
     L,H,A,B = str(L),str(H),str(A),str(B)
-    if full4.get(L+H+A+B,0)>0: 
+    if full4.get(L+H+A+B,0)>0:
         continue
     s = p_quad_smooth(L,H,A,B)
     quad_scores.append(s); quad_labels.append(0)
 cal_quad = isotonic_from_bins(quad_scores, quad_labels, n_bins=12)
 
 # ----------------- HYBRID POOL (A,B,H,L) -----------------
-# - A,B: ใช้คะแนนผสม p_pos + conditional odds + PMI
-# - H: ใช้ p_pos(H,1) ผสมกับความสัมพันธ์กับ A,B (และจะมี rule เฉพาะของ 4 ตัว)
-# - L: สำหรับ 4 ตัว ใช้หลักพันของงวดล่าสุด (ตามกฎใหม่)
 def rank_AB_candidates(kA=8, kB=8):
     scoreA=defaultdict(float); scoreB=defaultdict(float)
-    # seed ด้วย marginals
     for d in digits:
         scoreA[d] += 0.55*p_pos(d,2) + 0.10*(cnt_overall[d]/(4*N))
         scoreB[d] += 0.55*p_pos(d,3) + 0.10*(cnt_overall[d]/(4*N))
-    # เพิ่ม conditional odds สูงสุดกับอีกฝั่ง
     for a in digits:
         scoreA[a] += 0.25*max(condB_givenA[(a,b)] for b in digits)
         scoreA[a] += 0.10*max(PMI[a+b] for b in digits)
@@ -286,45 +271,40 @@ A_pool, B_pool, scoreA, scoreB = rank_AB_candidates()
 H_pool, scoreH = rank_H_candidates()
 
 # ----------------- MAIN CALC -----------------
-# (1) เด่น/รอง (คล้ายเดิม แต่ใช้ hybrid weights เล็กน้อย)
+# เด่น/รอง (เพิ่ม hybrid term เล็กน้อย)
 sc=defaultdict(float)
 for d in digits:
     sc[d]=0.45*p_pos(d,3)+0.35*p_pos(d,2)+0.10*(cnt_overall[d]/(4*N))+0.05*p_pos(d,1)+0.05*max(0.0,scoreB[d]-scoreA[d])
 rank_digits=sorted(sc,key=lambda x:(-sc[x],x)); main,sub=rank_digits[0],rank_digits[1]
 conf=normalize_scores(sc)
 
-# (2) 2 ตัวท้าย — hybrid + penalties + calibration
+# 2 ตัวท้าย — hybrid + penalties + calibration
 pairs=[]
 for a in A_pool:
     for b in B_pool:
-        if a==b:  # อนุญาตหรือไม่ก็ได้ ถ้าไม่อยาก ก็ continue
-            pass
+        # ถ้าต้องการห้าม A==B ให้เปิดบรรทัดต่อไป
+        # if a==b: continue
         raw = p_pair_smooth(a,b)
         raw = apply_pair_penalty(a,b, raw)
-        score = raw
-        # เพิ่มแรงจาก conditional / PMI (เล็กน้อย)
-        score += 0.05*condB_givenA[(a,b)] + 0.03*max(0.0, PMI[a+b])
+        score = raw + 0.05*condB_givenA[(a,b)] + 0.03*max(0.0, PMI[a+b])
         pairs.append((a+b, score))
-# รวมซ้ำและเรียง
 tmp=defaultdict(float)
 for k,v in pairs:
     tmp[k]=max(tmp[k], v)
 pairs = [(k,tmp[k]) for k in tmp]
 pairs.sort(key=lambda x:(-x[1], x[0]))
 pairs = pairs[:5]
-# แปลงเป็นเปอร์เซ็นต์แบบ calibrated
 pairs_cal = [(p, cal_pair(s)) for p,s in pairs]
 
-# (3) 3 ตัวท้าย — ต่อ H จาก H_pool แล้วใช้ penalty + calibration
+# 3 ตัวท้าย — ต่อ H จาก H_pool แล้วใช้ penalty + calibration
 triples=[]
 if pairs:
     triple_scores={}
-    for pair_key, s_pair in pairs:
+    for pair_key, _ in pairs:
         a,b = pair_key[0], pair_key[1]
         for h in H_pool:
             raw = p_triple_smooth(h,a,b)
             raw = apply_triple_penalty(h,a,b, raw)
-            # ผสม condA/condB เล็กน้อย
             raw += 0.03*(condB_givenA[(a,b)] + condA_givenB[(a,b)])
             t = h+a+b
             triple_scores[t]=max(triple_scores.get(t,0.0), raw)
@@ -333,27 +313,22 @@ if pairs:
 else:
     triples=[]; triples_cal=[]
 
-# (4) 4 ตัวเต็ม — ใช้กฎ L และ H ตามที่กำหนด
-#  - L = หลักพันของงวดล่าสุด
-#  - H = "น้อยที่สุดใน 5 งวดล่าสุด" (รวมเลขที่ไม่เคยเกิดใน 5 งวด = นับ 0 → เป็นตัวเลือกอันดับแรก)
+# 4 ตัวเต็ม — กฎใหม่: L = หลักพันของงวดล่าสุด, H = น้อยที่สุดใน 5 งวดล่าสุด
 L_fixed = last[0]
-# สร้างชุด H candidates จาก recent-5: หา count ต่ำสุด
 h_counts_recent = cnt_pos_recent5[1]
 min_c = min(h_counts_recent.get(d,0) for d in digits)
 H_least = [d for d in digits if h_counts_recent.get(d,0)==min_c]
-# เพื่อความยืดหยุ่น หาก H_least หลายตัว ให้คัด 3 ตัวที่ทำคะแนน quad ดีสุดกับคู่ A,B top
+
 quad="-"; qp_raw=0.0; qp_cal=0.0
-if pairs:
-    # ใช้ top-3 pairs เพื่อสร้างตัวเลือก
-    P = [p for p,_ in pairs[:3]]
+if pairs and H_least:
+    P = [p for p,_ in pairs[:3]]  # ใช้ top-3 pairs
     qlist=[]
     for p in P:
         a,b = p[0], p[1]
         for h in H_least:
             raw = p_quad_smooth(L_fixed, h, a, b)
-            # เบา ๆ: หาก h ไม่เคยเกิดเลยใน recent5 → เพิ่มโบนัสเล็กน้อย
             if h_counts_recent.get(h,0)==0:
-                raw += 0.02
+                raw += 0.02  # โบนัสเล็กน้อยหาก "ไม่เคยเกิด" ใน recent5
             q = L_fixed + h + a + b
             qlist.append((q, raw))
     if qlist:
@@ -371,7 +346,7 @@ st.markdown(f"""
     <span><span class="label">รอง</span><span class="digit digit-red">{sub}</span>
     <span class="tag">conf ~ {conf[sub]*100:.0f}%</span></span>
   </div>
-  <div class="small">* conf คือคะแนน normalize ภายใน 0–100 ของ 10 ตัวเลข ไม่ใช่โอกาสจริง</div>
+  <div class="small">* conf คือคะแนน normalize ภายใน 0–100 ของ 10 ตัวเลข (ไม่ใช่โอกาสรวม 100%)</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -392,6 +367,7 @@ st.markdown(f"<div class='card'><div class='heading'>สามตัวล่า
 # 4 ตัว
 quad_html = (f"<span class='badge'><span class='digit-red'>{quad}</span><span class='perc'>{pct(qp_cal)}</span></span>"
              if quad != "-" else "<span class='perc'>ยังคัดไม่ได้</span>")
-st.markdown(f"<div class='card'><div class='heading'>สี่ตัว (กฎกำหนด L และ H · Calibrated)</div><div class='num-sm'>{quad_html}</div><div class='small'>กฎ: L = หลักพันของงวดล่าสุด ({L_fixed}) · H = ตัวที่ออกน้อยที่สุดใน 5 งวดล่าสุด ({', '.join(H_least) if H_least else '-'})</div></div>", unsafe_allow_html=True)
+hleast_txt = ", ".join(H_least) if H_least else "-"
+st.markdown(f"<div class='card'><div class='heading'>สี่ตัว (กฎกำหนด L และ H · Calibrated)</div><div class='num-sm'>{quad_html}</div><div class='small'>กฎ: L = หลักพันงวดล่าสุด ({L_fixed}) · H = น้อยที่สุดใน 5 งวดล่าสุด ({hleast_txt})</div></div>", unsafe_allow_html=True)
 
 st.markdown('<div class="footer">ลิขสิทธิ์@Phatarit#2025 · V7.2</div>', unsafe_allow_html=True)
